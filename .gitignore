@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+artifacts/
+logs/
+
+# Local paper PDFs are excluded by default because of copyright and repository size.
+data/papers/*.pdf
