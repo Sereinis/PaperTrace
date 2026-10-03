@@ -1,35 +1,49 @@
+import json
+from pathlib import Path
+
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 
-def extract_pdf_pages(pdf_path: str) -> dict:
-    """
-    读取PDF
-    返回字典: {"total_pages":总页数, "pages": [每页文本], "error":错误信息}
-    """
+def extract_pdf_pages(pdf_path: str | Path) -> dict:
+    """读取 PDF，返回包含文件名、总页数和页级文本的字典。"""
+    path = Path(pdf_path)
     result = {
+        "file_name": path.name,
         "total_pages": 0,
         "pages": [],
-        "error": None
+        "error": None,
     }
+
     try:
-        reader = PdfReader(pdf_path)
-        # 获取总页数
-        total = len(reader.pages)
-        result["total_pages"] = total
+        reader = PdfReader(path)
+        result["total_pages"] = len(reader.pages)
 
-        for page in reader.pages:
-            text = page.extract_text()
-            # 页面没有文本，填充提示字符串
-            if text is None or text.strip() == "":
-                text = "[当前页面未提取到文本]"
-            result["pages"].append(text)
-
+        for page_number, page in enumerate(reader.pages, start=1):
+            extracted_text = page.extract_text() or ""
+            text = extracted_text.strip()
+            result["pages"].append(
+                {
+                    "page_number": page_number,
+                    "text": text,
+                    "char_count": len(text),
+                    "has_text": bool(text),
+                }
+            )
     except FileNotFoundError:
-        result["error"] = f"错误：文件不存在 -> {pdf_path}"
+        result["error"] = f"错误：文件不存在 -> {path}"
     except PdfReadError:
-        result["error"] = f"错误：该文件不是合法PDF -> {pdf_path}"
-    except Exception as e:
-        result["error"] = f"未知异常：{str(e)}"
+        result["error"] = f"错误：该文件不是合法 PDF -> {path}"
+    except Exception as exc:
+        result["error"] = f"未知异常：{exc}"
 
     return result
+
+
+def save_to_json(data: dict, output_json_path: str | Path) -> Path:
+    """将解析结果以 UTF-8 编码保存为 JSON，并返回输出路径。"""
+    output_path = Path(output_json_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
+    return output_path
