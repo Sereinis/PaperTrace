@@ -32,7 +32,7 @@ def main() -> int:
     else:
         for page in result["pages"]:
             print(f"===== Page {page['page_number']} =====")
-            print(page["text"] or "[当前页面未提取到文本]")
+            print(page["cleaned_text"] or "[当前页面未提取到文本]")
     return 0
 
 if __name__ == "__main__":

@@ -49,7 +49,9 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf
 python -m papertrace.cli data/papers/attention_is_all_you_need.pdf --output artifacts/attention.json
 ```
 
-JSON 中会保存论文文件名、总页数，以及每页的页码、文本、字符数和是否包含文本。`artifacts/` 默认不会提交到 Git。
+JSON 中会保存论文文件名、总页数，以及每页的页码、原始文本、清洗后文本、两者字符数和是否包含文本。`artifacts/` 默认不会提交到 Git。
+
+原始文本不会被覆盖，清洗后的文本用于后续分块和检索；这样可以在发现清洗规则误判时回到原始证据。
 
 ## 当前限制
 

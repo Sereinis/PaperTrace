@@ -26,13 +26,35 @@ def test_extract_pdf_pages_keeps_page_metadata(monkeypatch):
     assert result["error"] is None
     assert result["pages"][0] == {
         "page_number": 1,
-        "text": "first page",
-        "char_count": 10,
+        "raw_text": " first page ",
+        "cleaned_text": "first page",
+        "raw_char_count": 12,
+        "cleaned_char_count": 10,
         "has_text": True,
     }
     assert result["pages"][1]["page_number"] == 2
-    assert result["pages"][1]["text"] == ""
+    assert result["pages"][1]["raw_text"] == ""
+    assert result["pages"][1]["cleaned_text"] == ""
+    assert result["pages"][1]["raw_char_count"] == 0
+    assert result["pages"][1]["cleaned_char_count"] == 0
     assert result["pages"][1]["has_text"] is False
+
+
+def test_extract_pdf_pages_applies_cleaner(monkeypatch):
+    monkeypatch.setattr(parser, "PdfReader", FakeReader)
+    calls = []
+
+    def fake_cleaner(text, page_number):
+        calls.append((text, page_number))
+        return f"cleaned-{page_number}"
+
+    monkeypatch.setattr(parser, "clean_page_text", fake_cleaner)
+
+    result = parser.extract_pdf_pages("example.pdf")
+
+    assert calls == [(" first page ", 1), ("", 2)]
+    assert result["pages"][0]["cleaned_text"] == "cleaned-1"
+    assert result["pages"][1]["cleaned_text"] == "cleaned-2"
 
 
 def test_extract_pdf_pages_reports_missing_file(monkeypatch):

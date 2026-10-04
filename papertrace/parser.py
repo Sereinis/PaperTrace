@@ -4,6 +4,8 @@ from pathlib import Path
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+from papertrace.cleaner import clean_page_text
+
 
 def extract_pdf_pages(pdf_path: str | Path) -> dict:
     """读取 PDF，返回包含文件名、总页数和页级文本的字典。"""
@@ -20,14 +22,16 @@ def extract_pdf_pages(pdf_path: str | Path) -> dict:
         result["total_pages"] = len(reader.pages)
 
         for page_number, page in enumerate(reader.pages, start=1):
-            extracted_text = page.extract_text() or ""
-            text = extracted_text.strip()
+            raw_text = page.extract_text() or ""
+            cleaned_text = clean_page_text(raw_text, page_number)
             result["pages"].append(
                 {
                     "page_number": page_number,
-                    "text": text,
-                    "char_count": len(text),
-                    "has_text": bool(text),
+                    "raw_text": raw_text,
+                    "cleaned_text": cleaned_text,
+                    "raw_char_count": len(raw_text),
+                    "cleaned_char_count": len(cleaned_text),
+                    "has_text": bool(cleaned_text),
                 }
             )
     except FileNotFoundError:
