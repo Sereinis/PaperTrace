@@ -59,6 +59,26 @@ JSON 中会保存论文文件名、总页数，以及每页的页码、原始文
 - 复杂公式、表格和双栏阅读顺序可能存在解析误差；
 - 当前只完成页级解析，尚未实现文本分块、检索和结构化实验字段抽取。
 
+## 页内文本分块
+
+`papertrace.chunker.chunk_page` 可以将清洗后的单页文本转换为可追溯的文本块：
+
+```python
+from papertrace.chunker import chunk_page
+
+chunks = chunk_page(
+    text=page["cleaned_text"],
+    page_number=page["page_number"],
+    document_id="attention_is_all_you_need",
+    max_chars=1200,
+    overlap_chars=100,
+)
+```
+
+每个文本块包含稳定 ID、页码、块序号、文本、字符数和原页面文本中的字符范围。分块器优先在段落、句末、换行或空格处切分；只有超长且没有合适边界的文本才按字符上限拆分。
+
+当前分块严格限制在单页内，不恢复表格结构，也不合并跨页句子。章节识别将在后续阶段单独实现。
+
 ## 本地样本
 
 `data/papers/` 中的 PDF 仅用于本地开发和人工测试，默认不会提交到 Git。论文来源、授权和使用范围需要在后续数据说明中单独记录。
