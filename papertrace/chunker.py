@@ -1,5 +1,7 @@
 import re
 
+from papertrace.section_detector import detect_sections
+
 
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 _NON_IDENTIFIER_CHARACTER = re.compile(r"[^a-z0-9]+")
@@ -97,6 +99,7 @@ def _normalize_document_id(document_id: str) -> str:
 
 
 def _find_chunk_end(text: str, start: int, max_chars: int) -> int:
+    """在长度上限内优先选择真实存在的自然边界，否则硬切。"""
     limit = min(start + max_chars, len(text))
     if limit == len(text):
         return limit
@@ -105,7 +108,7 @@ def _find_chunk_end(text: str, start: int, max_chars: int) -> int:
     window = text[start:limit]
 
     paragraph_end = window.rfind("\n\n")
-    if start + paragraph_end + 2 >= minimum_boundary:
+    if paragraph_end >= 0 and start + paragraph_end + 2 >= minimum_boundary:
         return start + paragraph_end + 2
 
     sentence_ends = [match.end() for match in _SENTENCE_BOUNDARY.finditer(window)]
@@ -113,11 +116,11 @@ def _find_chunk_end(text: str, start: int, max_chars: int) -> int:
         return start + sentence_ends[-1]
 
     newline_end = window.rfind("\n")
-    if start + newline_end + 1 >= minimum_boundary:
+    if newline_end >= 0 and start + newline_end + 1 >= minimum_boundary:
         return start + newline_end + 1
 
     whitespace_end = max(window.rfind(" "), window.rfind("\t"))
-    if start + whitespace_end + 1 >= minimum_boundary:
+    if whitespace_end >= 0 and start + whitespace_end + 1 >= minimum_boundary:
         return start + whitespace_end + 1
 
     return limit
@@ -155,3 +158,61 @@ def _trim_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     while end > start and text[end - 1].isspace():
         end -= 1
     return start, end
+
+
+def chunk_document(
+    pages: list[dict],
+    document_id: str,
+    max_chars: int = 1200,
+    overlap_chars: int = 100,
+) -> list[dict]:
+    """按章节与页面边界分块，接收解析器返回的 pages 列表。
+
+    每页必须包含 page_number 和 cleaned_text，页码须严格递增。
+    标题归属新章节；章节内可重叠，但不跨章节或跨页重叠。
+    页首沿用前页最后的标题，首次标题之前标为 unknown。
+    start_char/end_char 直接对应原 cleaned_text 的左闭右开字符区间，
+    与 chunk_page 去除外层空白后的坐标不同。不修改传入数据。
+    规则误检或漏检会影响章节归属；不推断父章节或合并跨行标题。
+    """
+    _validate_arguments(1, document_id, max_chars, overlap_chars)
+    normalized_id = _normalize_document_id(document_id)
+    chunks: list[dict] = []
+    section = {"section_key": "unknown", "title": None, "number": None}
+    previous_page = 0
+
+    for page in pages:
+        page_number = page["page_number"]
+        if page_number <= previous_page:
+            raise ValueError("page_number must be positive and strictly increasing")
+        previous_page = page_number
+        text = page["cleaned_text"]
+        headings = detect_sections(text)
+        start = 0
+        page_index = 0
+
+        # 每次遇到标题，先处理此前的区间，再切换到新章节。
+        for heading in [*headings, None]:
+            end = heading["start_char"] if heading is not None else len(text)
+            segment = text[start:end]
+            leading_space = len(segment) - len(segment.lstrip())
+            for chunk in chunk_page(
+                segment, page_number, document_id, max_chars, overlap_chars
+            ):
+                page_index += 1
+                chunk.update(
+                    document_id=document_id,
+                    chunk_id=f"{normalized_id}_p{page_number:03d}_c{page_index:03d}",
+                    chunk_index=page_index,
+                    start_char=start + leading_space + chunk["start_char"],
+                    end_char=start + leading_space + chunk["end_char"],
+                    section_key=section["section_key"],
+                    section_title=section["title"],
+                    section_number=section["number"],
+                )
+                chunks.append(chunk)
+            if heading is not None:
+                start = end
+                section = heading
+
+    return chunks
