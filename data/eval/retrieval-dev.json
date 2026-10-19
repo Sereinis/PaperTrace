@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "dataset_id": "papertrace-retrieval-dev-v1",
+  "annotation_status": "assistant_draft_pending_user_review",
+  "split": "development",
+  "notes": "Assistant-authored English queries and evidence checked against extracted text before retrieval. Not an independent or exhaustively annotated test set. Page numbers are 1-based PDF pages.",
+  "chunking": {"max_chars": 1200, "overlap_chars": 100, "pypdf_version": "5.9.0", "baseline_commit": "7076ca7"},
+  "documents": [
+    {
+      "document_id": "attention_is_all_you_need",
+      "source_url": "https://arxiv.org/abs/1706.03762",
+      "chunks_sha256": "47bcaa05464e61fc549598cd45ffed6318377917ddac914527b7760ff9335c4d"
+    },
+    {
+      "document_id": "bert_pretraining",
+      "source_url": "https://arxiv.org/abs/1810.04805",
+      "chunks_sha256": "4ca5d50726b1d0586b0b81bc529358a6019df4f0185e307ece08f80b9448acc8"
+    },
+    {
+      "document_id": "lora",
+      "source_url": "https://arxiv.org/abs/2106.09685",
+      "chunks_sha256": "627d4377a714c002b35c85d7e883f70d791bd7fe6bd547fb34e03c8027bea8e5"
+    }
+  ],
+  "cases": [
+    {
+      "query_id": "attention-data",
+      "document_id": "attention_is_all_you_need",
+      "category": "datasets",
+      "query": "Which datasets and vocabulary sizes are used for training English German and English French translation?",
+      "relevant_chunk_ids": ["attention_is_all_you_need_p007_c004"],
+      "evidence": [{"chunk_id": "attention_is_all_you_need_p007_c004", "page_number": 7, "quote": "We trained on the standard WMT 2014 English-German dataset consisting of about 4.5 million"}]
+    },
+    {
+      "query_id": "attention-hardware",
+      "document_id": "attention_is_all_you_need",
+      "category": "training_settings",
+      "query": "What hardware and how many training steps were used for the base model?",
+      "relevant_chunk_ids": ["attention_is_all_you_need_p007_c005"],
+      "evidence": [{"chunk_id": "attention_is_all_you_need_p007_c005", "page_number": 7, "quote": "We trained our models on one machine with 8 NVIDIA P100 GPUs."}]
+    },
+    {
+      "query_id": "attention-optimizer",
+      "document_id": "attention_is_all_you_need",
+      "category": "training_settings",
+      "query": "Which optimizer and learning rate warmup schedule are used?",
+      "relevant_chunk_ids": ["attention_is_all_you_need_p007_c006"],
+      "evidence": [{"chunk_id": "attention_is_all_you_need_p007_c006", "page_number": 7, "quote": "warmup_steps = 4000."}]
+    },
+    {
+      "query_id": "attention-result",
+      "document_id": "attention_is_all_you_need",
+      "category": "main_results",
+      "query": "What BLEU score does the big Transformer achieve on WMT 2014 English to German translation?",
+      "relevant_chunk_ids": ["attention_is_all_you_need_p001_c002", "attention_is_all_you_need_p008_c001", "attention_is_all_you_need_p008_c003"],
+      "evidence": [
+        {"chunk_id": "attention_is_all_you_need_p001_c002", "page_number": 1, "quote": "Our model achieves 28.4 BLEU"},
+        {"chunk_id": "attention_is_all_you_need_p008_c001", "page_number": 8, "quote": "Transformer (big) 28.4 41.8"},
+        {"chunk_id": "attention_is_all_you_need_p008_c003", "page_number": 8, "quote": "BLEU, establishing a new state-of-the-art BLEU score of 28.4."}
+      ]
+    },
+    {
+      "query_id": "bert-corpus",
+      "document_id": "bert_pretraining",
+      "category": "datasets",
+      "query": "What corpora and word counts are used for BERT pre training?",
+      "relevant_chunk_ids": ["bert_pretraining_p005_c001"],
+      "evidence": [{"chunk_id": "bert_pretraining_p005_c001", "page_number": 5, "quote": "2015) and English Wikipedia (2,500M words)."}]
+    },
+    {
+      "query_id": "bert-masking",
+      "document_id": "bert_pretraining",
+      "category": "models_or_methods",
+      "query": "What percentage of WordPiece tokens is selected for masked language modeling?",
+      "relevant_chunk_ids": ["bert_pretraining_p004_c004"],
+      "evidence": [{"chunk_id": "bert_pretraining_p004_c004", "page_number": 4, "quote": "experiments, we mask 15% of all WordPiece"}]
+    },
+    {
+      "query_id": "bert-finetuning",
+      "document_id": "bert_pretraining",
+      "category": "training_settings",
+      "query": "What batch size and number of epochs are used to fine tune on GLUE tasks?",
+      "relevant_chunk_ids": ["bert_pretraining_p006_c001"],
+      "evidence": [{"chunk_id": "bert_pretraining_p006_c001", "page_number": 6, "quote": "We use a batch size of 32 and ﬁne-tune for 3"}]
+    },
+    {
+      "query_id": "bert-metrics",
+      "document_id": "bert_pretraining",
+      "category": "metrics",
+      "query": "Which evaluation metrics are reported for QQP MRPC and STS-B?",
+      "relevant_chunk_ids": ["bert_pretraining_p006_c001"],
+      "evidence": [{"chunk_id": "bert_pretraining_p006_c001", "page_number": 6, "quote": "F1 scores are reported for QQP and MRPC, Spearman correlations are reported for STS-B, and"}]
+    },
+    {
+      "query_id": "lora-initialization",
+      "document_id": "lora",
+      "category": "training_settings",
+      "query": "How are matrices A and B initialized before training?",
+      "relevant_chunk_ids": ["lora_p004_c003"],
+      "evidence": [{"chunk_id": "lora_p004_c003", "page_number": 4, "quote": "zero for B, so ∆W = BAis zero at the beginning of training."}]
+    },
+    {
+      "query_id": "lora-frozen",
+      "document_id": "lora",
+      "category": "models_or_methods",
+      "query": "Which parameters are frozen and which low rank matrices receive updates?",
+      "relevant_chunk_ids": ["lora_p004_c003"],
+      "evidence": [{"chunk_id": "lora_p004_c003", "page_number": 4, "quote": "During training, W0 is frozen and does not receive gradient updates"}]
+    },
+    {
+      "query_id": "lora-ablation",
+      "document_id": "lora",
+      "category": "ablation_results",
+      "query": "Under the same trainable parameter budget which attention weight types perform best on WikiSQL and MultiNLI?",
+      "relevant_chunk_ids": ["lora_p010_c002", "lora_p010_c003"],
+      "evidence": [
+        {"chunk_id": "lora_p010_c002", "page_number": 10, "quote": "Adapting both Wq and"},
+        {"chunk_id": "lora_p010_c003", "page_number": 10, "quote": "while adapting both Wq and Wv yields the best result."}
+      ]
+    },
+    {
+      "query_id": "lora-limitations",
+      "document_id": "lora",
+      "category": "limitations",
+      "query": "What limitation affects batching inputs from different tasks when LoRA weights are merged?",
+      "relevant_chunk_ids": ["lora_p005_c003"],
+      "evidence": [{"chunk_id": "lora_p005_c003", "page_number": 5, "quote": "LoRA also has its limitations. For example, it is not straightforward to batch inputs to different tasks"}]
+    }
+  ]
+}
