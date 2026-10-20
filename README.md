@@ -72,7 +72,7 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf `
 
 `papertrace.keyword_search.KeywordRetriever` 接收 chunk 列表，使用 BM25 风格评分返回带页码、章节、分数和排名的候选证据。
 
-新增独立命令 `python -m papertrace.eval_cli` 可以读取固定的 chunk JSON 和问题集，输出 Recall@K、Hit@K、MRR@K 及逐问题结果。首版开发集包含三篇论文的 12 个英文问题，由助手初标、待用户复核，不代表独立测试结果。
+新增独立命令 `python -m papertrace.eval_cli` 可以读取固定的 chunk JSON 和问题集，输出 Recall@K、Hit@K、MRR@K 及逐问题结果。当前 v2 开发集包含三篇论文的 12 个英文问题和 24 个问题—证据关联，由 AI 辅助构建，并对照解析文本及相关 PDF 页面复核，尚未经过独立人工验证。评测结果用于开发诊断，不作为泛化能力的充分证据。
 
 完整运行命令、指标口径和失败案例见 [检索评测协议](docs/retrieval-evaluation.md)。当前评测限定为指定论文内检索，不评估最终答案正确率。
 
