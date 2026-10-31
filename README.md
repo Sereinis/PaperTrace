@@ -4,7 +4,7 @@ PaperTrace 是一个面向英文计算机论文的实验信息提取与证据追
 
 ## 当前状态
 
-v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感知分块、chunk JSON 输出和英文关键词检索基线，并提供小规模离线检索评测。新增硅基流动 BGE-M3 文本向量化适配层，已通过离线模拟测试及两条示例文本的真实接口连通性验证。向量检索、带证据问答和结构化实验抽取尚未实现。
+v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感知分块、chunk JSON 输出和英文关键词检索基线，并提供小规模离线检索评测。已接入硅基流动 BGE-M3 文本向量化适配层，支持从 chunk JSON 生成可追溯的向量快照与本地内容缓存；已验证两条真实论文分块的向量生成和缓存复用。向量检索、带证据问答和结构化实验抽取尚未实现。
 
 已完成的 v0.1 范围：
 
@@ -84,7 +84,7 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf `
 
 ## BGE-M3 文本向量化
 
-`papertrace.embeddings.SiliconFlowEmbedder` 调用硅基流动文本向量化接口，将字符串列表转换为按输入顺序排列的 1024 维稠密向量。该模块尚未接入分块、索引或检索评测流程，不是完整的向量检索实现。
+`papertrace.embeddings.SiliconFlowEmbedder` 调用硅基流动文本向量化接口，将字符串列表转换为按输入顺序排列的 1024 维稠密向量。`papertrace.embedding_cache.embed_chunks` 将向量与当前分块元数据绑定，支持按内容复用本地缓存；尚未实现向量索引或接入检索评测，不是完整的向量检索实现。
 
 密钥可填写在项目根目录已被 Git 忽略的 `.env` 中：`SILICONFLOW_API_KEY=你的密钥`。模块依次使用显式 `api_key` 参数、进程环境变量、项目根目录 `.env`，不会覆盖已有环境变量。不要写入源码或提交 Git。安装依赖后即可读取配置，不自动保存密钥。
 
@@ -100,6 +100,14 @@ print(len(vectors), len(vectors[0]))
 ```
 
 接口契约、输入限制、安全配置和小规模连通性验证方法见 [向量化接口说明](docs/embeddings.md)。2026-10-20 真实调用返回两条 1024 维向量；这仅验证该次接口连通性与响应结构，不代表检索质量或长期服务稳定性。
+
+对现有论文 chunk JSON 生成向量快照：
+
+```powershell
+python -m papertrace.embed_cli --chunks artifacts/attention-chunks.json --cache-dir artifacts/embedding-cache --output artifacts/attention-vectors.json
+```
+
+首次运行会发送缺失文本到硅基流动，可能消耗额度；相同模型与文本再次运行复用缓存。命令拒绝覆盖已有输出，请使用新的输出文件名。缓存和完整向量快照应保留在被 Git 忽略的 `artifacts/` 下。缓存身份、失败恢复与命令参数见 [分块向量化与缓存](docs/embedding-cache.md)。
 
 ## 页内文本分块
 
