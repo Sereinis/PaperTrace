@@ -84,7 +84,7 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf `
 
 ## BGE-M3 文本向量化
 
-`papertrace.embeddings.SiliconFlowEmbedder` 调用硅基流动文本向量化接口，将字符串列表转换为按输入顺序排列的 1024 维稠密向量。`papertrace.embedding_cache.embed_chunks` 将向量与当前分块元数据绑定，支持按内容复用本地缓存；尚未实现向量索引或接入检索评测，不是完整的向量检索实现。
+`papertrace.embeddings.SiliconFlowEmbedder` 调用硅基流动文本向量化接口，将字符串列表转换为按输入顺序排列的 1024 维稠密向量。`papertrace.embedding_cache.embed_chunks` 将向量与当前分块元数据绑定，支持按内容复用本地缓存。`papertrace.vector_search.VectorRetriever` 会将查询文本向量化，在本地计算余弦相似度并返回带来源元数据的 Top-K 分块；当前尚未接入检索评测。
 
 密钥可填写在项目根目录已被 Git 忽略的 `.env` 中：`SILICONFLOW_API_KEY=你的密钥`。模块依次使用显式 `api_key` 参数、进程环境变量、项目根目录 `.env`，不会覆盖已有环境变量。不要写入源码或提交 Git。安装依赖后即可读取配置，不自动保存密钥。
 
@@ -108,6 +108,21 @@ python -m papertrace.embed_cli --chunks artifacts/attention-chunks.json --cache-
 ```
 
 首次运行会发送缺失文本到硅基流动，可能消耗额度；相同模型与文本再次运行复用缓存。命令拒绝覆盖已有输出，请使用新的输出文件名。缓存和完整向量快照应保留在被 Git 忽略的 `artifacts/` 下。缓存身份、失败恢复与命令参数见 [分块向量化与缓存](docs/embedding-cache.md)。
+
+使用向量快照执行一次本地检索：
+
+```python
+from papertrace.embeddings import SiliconFlowEmbedder
+from papertrace.vector_search import VectorRetriever, load_vector_snapshot
+
+snapshot = load_vector_snapshot("artifacts/attention-vectors.json")
+retriever = VectorRetriever(snapshot, SiliconFlowEmbedder())
+results = retriever.search("How does self-attention work?", top_k=5)
+for result in results:
+    print(result["rank"], result["score"], result["page_number"], result["text"])
+```
+
+查询文本会产生一次新的向量化请求；论文分块向量从本地快照读取，不会重复生成。首次使用真实快照前，应确认其中的模型、维度和分块来源与当前实验配置一致。
 
 ## 页内文本分块
 
