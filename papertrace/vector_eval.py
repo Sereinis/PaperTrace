@@ -10,6 +10,8 @@ from typing import Callable
 
 from papertrace.embedding_cache import embed_chunks, validate_chunks
 from papertrace.embeddings import SiliconFlowEmbedder
+from papertrace.hybrid_search import HybridRetriever
+from papertrace.keyword_search import KeywordRetriever
 from papertrace.retrieval_eval import corpus_fingerprint, evaluate_retrieval
 from papertrace.vector_search import VectorRetriever, _validate_snapshot
 
@@ -104,8 +106,25 @@ def compare_retrieval(
         retriever_info={"name": "bge_m3_dense_cosine", **snapshot["embedding_config"]},
     )
     vector_seconds = time.perf_counter() - started
+    started = time.perf_counter()
+
+    def hybrid_factory(items):
+        """为单篇论文同时创建关键词和向量检索器，保持候选范围一致。"""
+        subset = {
+            "schema_version": 1, "embedding_config": snapshot["embedding_config"],
+            "chunk_count": len(items), "chunks_sha256": corpus_fingerprint(items),
+            "records": [by_id[chunk["chunk_id"]] for chunk in items],
+        }
+        return HybridRetriever(KeywordRetriever(items), VectorRetriever(subset, client))
+
+    hybrid = evaluate_retrieval(
+        chunks, dataset["cases"], ks, retriever_factory=hybrid_factory,
+        retriever_info={"name": "rrf_keyword_bge_m3", "rrf_k": 60},
+    )
+    hybrid_seconds = time.perf_counter() - started
     deltas = {key: vector["metrics"][key] - value for key, value in keyword["metrics"].items()}
-    if not all(math.isfinite(value) for value in deltas.values()):
+    hybrid_deltas = {key: hybrid["metrics"][key] - value for key, value in keyword["metrics"].items()}
+    if not all(math.isfinite(value) for value in (*deltas.values(), *hybrid_deltas.values())):
         raise ValueError("指标必须为有限数值")
     return {
         "schema_version": 1, "dataset_id": dataset["dataset_id"],
@@ -119,8 +138,11 @@ def compare_retrieval(
         "query_cache_stats": queries["cache_stats"],
         "timing_seconds": {"keyword_validation_and_search": keyword_seconds,
                            "query_embedding_and_cache": query_seconds,
-                           "vector_validation_and_search": vector_seconds},
-        "keyword": keyword, "vector": vector, "delta_vector_minus_keyword": deltas,
+                           "vector_validation_and_search": vector_seconds,
+                           "hybrid_search": hybrid_seconds},
+        "keyword": keyword, "vector": vector, "hybrid": hybrid,
+        "delta_vector_minus_keyword": deltas,
+        "delta_hybrid_minus_keyword": hybrid_deltas,
         "limitations": ["Development set, not an independent test set.",
                         "AI-assisted annotations are not independently validated.",
                         "Observed timings are not a controlled benchmark; exact billing unavailable."],

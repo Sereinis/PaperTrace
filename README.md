@@ -82,7 +82,7 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf `
 python -m papertrace.vector_eval_cli --vectors artifacts/retrieval-dev-v2-vectors-20261031.json --dataset data/eval/retrieval-dev.json --query-cache-dir artifacts/retrieval-query-cache-20261031 --output artifacts/retrieval-comparison-v2-new.json --ks 1 3 5
 ```
 
-2026-10-31 的固定 v2 开发集结果：关键词 / 向量 Recall@5 为 0.8528 / 0.9250，MRR@5 为 0.9167 / 0.8958，Hit@5 均为 1.0000。不能据此宣称向量检索全面优于关键词检索；完整口径和退化案例见评测协议。
+2026-10-31 的固定 v2 开发集结果：关键词 / 向量 Recall@5 为 0.8528 / 0.9250，MRR@5 为 0.9167 / 0.8958；第一版 RRF 混合检索 Recall@5 为 0.9389、MRR@5 为 0.9583。该混合结果只是在已观察的开发集上得到，不能据此宣称方法已经泛化；完整口径和退化案例见评测协议。
 
 ## 当前限制
 

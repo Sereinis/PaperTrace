@@ -59,6 +59,9 @@ def test_within_document_macro_metrics_cache_and_immutability(sample, tmp_path):
     assert first["ks"] == [1, 2]
     assert first["vector"]["metrics"]["recall@1"] == pytest.approx(0.75)
     assert first["vector"]["metrics"]["recall@2"] == 1
+    assert first["hybrid"]["retriever"] == {"name": "rrf_keyword_bge_m3", "rrf_k": 60}
+    assert first["hybrid"]["metrics"]["recall@1"] >= first["keyword"]["metrics"]["recall@1"]
+    assert "delta_hybrid_minus_keyword" in first
     assert [r["chunk_id"] for r in first["vector"]["queries"][1]["results"]] == ["b1"]
     assert first["query_cache_stats"]["embedded_texts"] == 1
     second = compare_retrieval(snapshot, dataset, tmp_path / "queries", ks=[1, 2],
