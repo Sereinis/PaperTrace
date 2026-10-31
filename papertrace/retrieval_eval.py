@@ -1,9 +1,11 @@
-"""计算指定论文内关键词检索的离线指标，不调用外部模型。"""
+"""计算指定论文内检索指标，默认使用本地关键词基线。"""
 
 import hashlib
 import json
+import math
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import Callable
 
 from papertrace.keyword_search import KeywordRetriever
 
@@ -62,16 +64,36 @@ def _mean_metrics(rows: list[dict]) -> dict[str, float]:
     }
 
 
+def _finite_score(value: object) -> bool:
+    """检查分数为有限数值，异常大的整数按无效结果处理。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def evaluate_retrieval(
-    chunks: list[dict], cases: list[dict], ks: Sequence[int] = (1, 3, 5)
+    chunks: list[dict], cases: list[dict], ks: Sequence[int] = (1, 3, 5), *,
+    retriever_factory: Callable | None = None, retriever_info: dict | None = None,
 ) -> dict:
     """校验标注，在各论文内检索，返回总体、分论文和逐问题结果。
 
     每个问题必须包含 query_id、document_id、query、relevant_chunk_ids。
     可选 evidence 用 chunk_id、page_number、quote 核对标注与语料一致性。
-    所有输入校验完成后才运行检索；不修改输入或根据检索结果调整标注。
+    所有输入校验完成后才创建检索器；不修改输入或根据排名调整标注。
+    自定义工厂接收单篇论文的分块，须同时提供可追踪的方法说明。
     """
     cutoffs = _cutoffs(ks)
+    if retriever_factory is not None and (
+        not callable(retriever_factory) or not isinstance(retriever_info, dict)
+        or not isinstance(retriever_info.get("name"), str)
+        or not retriever_info["name"].strip()
+    ):
+        raise ValueError("custom retriever requires a callable factory and named info")
+    if retriever_factory is None and retriever_info is not None:
+        raise ValueError("retriever_info requires a custom factory")
     if not isinstance(chunks, list) or not chunks:
         raise ValueError("chunks must be a non-empty list")
     if not isinstance(cases, list) or not cases:
@@ -130,11 +152,23 @@ def evaluate_retrieval(
                 raise ValueError("evidence must cover all relevant_chunk_ids")
     _ids(query_ids, "query_ids")
 
-    retrievers = {did: KeywordRetriever(items) for did, items in grouped.items()}
+    factory = retriever_factory or KeywordRetriever
+    retrievers = {did: factory(items) for did, items in grouped.items()}
     details = []
     per_document = defaultdict(list)
     for case in cases:
         results = retrievers[case["document_id"]].search(case["query"], max(cutoffs))
+        if (not isinstance(results, list) or len(results) > max(cutoffs)
+                or any(not isinstance(item, dict)
+                       or not isinstance(item.get("chunk_id"), str)
+                       or item.get("chunk_id") not in by_id
+                       or not _finite_score(item.get("score"))
+                       or type(item.get("rank")) is not int
+                       or by_id[item["chunk_id"]]["document_id"] != case["document_id"]
+                       or item != {**by_id[item["chunk_id"]],
+                                   "score": item.get("score"), "rank": rank}
+                       for rank, item in enumerate(results, 1))):
+            raise ValueError("retriever returned invalid or cross-document results")
         metrics = score_ranking(
             [item["chunk_id"] for item in results], case["relevant_chunk_ids"], cutoffs
         )
@@ -145,7 +179,8 @@ def evaluate_retrieval(
         })
         per_document[case["document_id"]].append(metrics)
     return {
-        "retriever": {"name": "keyword_bm25_style", "k1": 1.5, "b": 0.75},
+        "retriever": (dict(retriever_info) if retriever_factory is not None else
+                      {"name": "keyword_bm25_style", "k1": 1.5, "b": 0.75}),
         "scope": "within_document", "ks": list(cutoffs),
         "query_count": len(cases), "chunk_count": len(chunks),
         "metrics": _mean_metrics([item["metrics"] for item in details]),

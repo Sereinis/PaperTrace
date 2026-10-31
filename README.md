@@ -4,7 +4,7 @@ PaperTrace 是一个面向英文计算机论文的实验信息提取与证据追
 
 ## 当前状态
 
-v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感知分块、chunk JSON 输出和英文关键词检索基线，并提供小规模离线检索评测。已接入硅基流动 BGE-M3 文本向量化适配层，支持从 chunk JSON 生成可追溯的向量快照与本地内容缓存；已验证两条真实论文分块的向量生成和缓存复用。本地余弦向量检索已实现并通过离线测试，尚未接入检索评测或完成真实查询验证。带证据问答和结构化实验抽取尚未实现。
+v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感知分块、chunk JSON 输出、英文关键词检索与本地余弦向量检索。硅基流动 BGE-M3 适配层支持可追溯向量快照及内容缓存，现已完成三篇论文、247 个分块、12 个英文问题的固定 v2 开发集对比，并验证查询缓存可离线复跑。向量方法提高了本轮 Recall@5，但未全面改善排名；开发集未经独立人工验证。带证据问答和结构化实验抽取尚未实现。
 
 已完成的 v0.1 范围：
 
@@ -68,7 +68,7 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf `
 
 章节识别和分块采用规则方法。首个识别标题之前的内容标为 `unknown`，没有新标题的后续页面继承上一章节；表格、公式、扫描件和跨行标题仍可能需要人工检查。
 
-## 关键词检索评测
+## 检索评测
 
 `papertrace.keyword_search.KeywordRetriever` 接收 chunk 列表，使用 BM25 风格评分返回带页码、章节、分数和排名的候选证据。
 
@@ -76,15 +76,23 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf `
 
 完整运行命令、指标口径和失败案例见 [检索评测协议](docs/retrieval-evaluation.md)。当前评测限定为指定论文内检索，不评估最终答案正确率。
 
+`python -m papertrace.vector_eval_cli` 在同一语料、查询和金标上比较关键词与 BGE-M3 稠密向量检索，输出总体、分论文和逐问题结果。分块向量取自完整快照，查询向量按文本和模型配置缓存；缓存全部命中时无需密钥或网络。首次生成缺失向量会调用计费 API。
+
+```powershell
+python -m papertrace.vector_eval_cli --vectors artifacts/retrieval-dev-v2-vectors-20261031.json --dataset data/eval/retrieval-dev.json --query-cache-dir artifacts/retrieval-query-cache-20261031 --output artifacts/retrieval-comparison-v2-new.json --ks 1 3 5
+```
+
+2026-10-31 的固定 v2 开发集结果：关键词 / 向量 Recall@5 为 0.8528 / 0.9250，MRR@5 为 0.9167 / 0.8958，Hit@5 均为 1.0000。不能据此宣称向量检索全面优于关键词检索；完整口径和退化案例见评测协议。
+
 ## 当前限制
 
 - 暂不处理扫描版 PDF 和 OCR；
 - 复杂公式、表格和双栏阅读顺序可能存在解析误差；
-- 向量检索尚未进行真实查询验证和开发集对比，结构化实验字段抽取尚未实现。
+- 检索对比仅覆盖小规模、AI 辅助标注的英文开发集，没有独立测试集或无答案问题；尚未验证跨论文检索、最终答案或结构化实验字段抽取。
 
 ## BGE-M3 文本向量化
 
-`papertrace.embeddings.SiliconFlowEmbedder` 调用硅基流动文本向量化接口，将字符串列表转换为按输入顺序排列的 1024 维稠密向量。`papertrace.embedding_cache.embed_chunks` 将向量与当前分块元数据绑定，支持按内容复用本地缓存。`papertrace.vector_search.VectorRetriever` 会将查询文本向量化，在本地计算余弦相似度并返回带来源元数据的 Top-K 分块；当前尚未接入检索评测。
+`papertrace.embeddings.SiliconFlowEmbedder` 调用硅基流动文本向量化接口，将字符串列表转换为按输入顺序排列的 1024 维稠密向量。`papertrace.embedding_cache.embed_chunks` 将向量与当前分块元数据绑定，支持按内容复用本地缓存。`papertrace.vector_search.VectorRetriever` 会将查询文本向量化，在本地计算余弦相似度并返回带来源元数据的 Top-K 分块；固定开发集对比入口为 `papertrace.vector_eval_cli`。
 
 密钥可填写在项目根目录已被 Git 忽略的 `.env` 中：`SILICONFLOW_API_KEY=你的密钥`。模块依次使用显式 `api_key` 参数、进程环境变量、项目根目录 `.env`，不会覆盖已有环境变量。不要写入源码或提交 Git。安装依赖后即可读取配置，不自动保存密钥。
 
