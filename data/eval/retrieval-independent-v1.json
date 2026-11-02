@@ -1,0 +1,579 @@
+{
+  "schema_version": 1,
+  "dataset_id": "papertrace-retrieval-independent-v1",
+  "split": "independent_test",
+  "scope": "within_document",
+  "annotation_status": "ai_assisted_answer_human_confirmed_chunk_gold_frozen",
+  "provenance": {
+    "frozen_at_utc": "2026-11-02T10:25:51.543928+00:00",
+    "evaluation_code_commit": "5dc2f3fe52e20f1cab7ebda96b28d64dedeb088d",
+    "retrieval_rankings_observed_at_freeze": false,
+    "results_observed_at_publication": true,
+    "source_frozen_dataset_sha256": "149584e8cd95ff6eb0f7c2fbd0ca02f56ce9671a33c80d11d87c245f4a8ffce3",
+    "publication_note": "Publication export with metadata cleanup and shortened evidence excerpts. Query text, relevance IDs, evidence page numbers and document fingerprints are unchanged. Each quote/additional_quotes excerpt is an exact substring of the original frozen evidence. File byte hash differs from the source; original frozen data and evaluation remain unchanged."
+  },
+  "human_review_scope": "Reference answers and source locations manually reviewed; chunk relevance and exhaustiveness are AI-reviewed, not independently human-validated.",
+  "relevance_policy": {
+    "positive": "A readable chunk directly supports at least one substantive requested fact. Full and partial direct evidence are binary relevant; no arbitrary count cap.",
+    "negative": "Context-only, a different experiment, incomplete unidentifiable fragments, or evidence requiring additional unstated substitution/inference are excluded.",
+    "corpus": "All 130 original chunks remain candidates, including extraction-damaged chunks excluded from gold.",
+    "metrics": "Recall measures annotated chunk coverage, not answer completeness; repeated equivalent chunks and large gold sets can impose a Recall@K ceiling below 1.",
+    "post_freeze": "No tuning or label changes based on first-test rankings; any future correction uses a new version with an explicit exposure record."
+  },
+  "chunking": {
+    "max_chars": 1200,
+    "overlap_chars": 100,
+    "scope": "within_document"
+  },
+  "documents": [
+    {
+      "document_id": "resnet",
+      "title": "Deep Residual Learning for Image Recognition",
+      "source_url": "https://arxiv.org/abs/1512.03385",
+      "pdf_file": "data/papers/resnet.pdf",
+      "pages": 12,
+      "chunk_count": 67,
+      "pdf_sha256": "1e0651b6810ecba34a3dbc5b5b0209226f889004607c1f203540a48d64e5a93a",
+      "chunks_sha256": "8afcc0d6b953c1f339a9811f57dfa107f649ff708a9c80989c9f66c8d2bf2d5f"
+    },
+    {
+      "document_id": "unet",
+      "title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+      "source_url": "https://arxiv.org/abs/1505.04597",
+      "pdf_file": "data/papers/unet.pdf",
+      "pages": 8,
+      "chunk_count": 29,
+      "pdf_sha256": "a3172b2124f38e260dc2c7ed968d87c31bc94dbc19a42a7ab3dcbd7534319c44",
+      "chunks_sha256": "22add682fc320851d6edb75104ef2318ef19da944d47d85bfd23fe9360941ff5"
+    },
+    {
+      "document_id": "gan",
+      "title": "Generative Adversarial Nets",
+      "source_url": "https://arxiv.org/abs/1406.2661",
+      "pdf_file": "data/papers/gan.pdf",
+      "pages": 9,
+      "chunk_count": 34,
+      "pdf_sha256": "ff5819e3a7b713c3bd3107b7de3d51fe0a347aa5d8444f0efdcf2345ef0a8b63",
+      "chunks_sha256": "e438722dc99f9abfbd04d5a80a73a418667e9224b0e21dd86c8e9317f1d26191"
+    }
+  ],
+  "cases": [
+    {
+      "query_id": "resnet-residual-mapping",
+      "document_id": "resnet",
+      "category": "method",
+      "query": "How does a residual block formulate the mapping it learns, and how is the shortcut output combined with it?",
+      "query_zh": "残差块如何表述它学习的映射？快捷连接的输出如何与它组合？",
+      "reference_answer_zh": "在输入输出维度相同的基本情形中，若期望映射为 H(x)，堆叠层学习残差 F(x)=H(x)-x，再把 F(x) 与恒等快捷分支的 x 逐元素相加，得到 y=F(x,{Wi})+x。本文图 2 在相加后还使用 ReLU；若维度不同，可用投影使快捷分支变为 Ws x，再相加。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "resnet_p002_c001",
+        "resnet_p002_c002",
+        "resnet_p003_c003",
+        "resnet_p003_c005",
+        "resnet_p003_c006",
+        "resnet_p004_c003"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "resnet_p002_c001",
+          "page_number": 2,
+          "quote": "underlying mapping as H(x), we let the stacked nonlinear\nlayers ﬁt another mapping of F(x) :=H(x) −x. The orig-\ninal mapping is recast intoF(x)+ x.",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p002_c002",
+          "page_number": 2,
+          "quote": "In our case, the shortcut connections simply\nperform identity mapping, and their outputs are added to\nthe outputs of the stacked layers (Fig. 2).",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p003_c003",
+          "page_number": 3,
+          "quote": "rather than expect stacked layers to approximate H(x), we\nexplicitly let these layers approximate a residual function\nF(x) := H(x) −x. The original function thus becomes\nF(x)+ x.",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p003_c005",
+          "page_number": 3,
+          "quote": "y = F(x,{Wi}) +x. (1)\nHere x and y are the input and output vectors of the lay-\ners considered. The function F(x,{Wi}) represents the\nresidual mapping to be learned.",
+          "coverage_labels": [
+            "full",
+            "partial"
+          ],
+          "additional_quotes": [
+            "The operation F+ x is performed by a shortcut\nconnection and element-wise addition. We adopt the sec-\nond nonlinearity after the addition (i.e., σ(y), see Fig. 2)."
+          ]
+        },
+        {
+          "chunk_id": "resnet_p003_c006",
+          "page_number": 3,
+          "quote": "The dimensions of x and Fmust be equal in Eqn.(1).\nIf this is not the case ( e.g., when changing the input/output\nchannels), we can perform a linear projection Ws by the\nshortcut connections to match the dimensions:\ny = F(x,{Wi}) +Wsx. (2)",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p004_c003",
+          "page_number": 4,
+          "quote": "The projection shortcut in Eqn.(2) is used to\nmatch dimensions (done by 1 ×1 convolutions).",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "resnet-degradation",
+      "document_id": "resnet",
+      "category": "problem",
+      "query": "What degradation phenomenon do the authors observe when plain networks become deeper, and why do they say it is not simply overfitting?",
+      "query_zh": "普通网络加深后出现什么退化现象？作者为什么认为它不只是过拟合？",
+      "reference_answer_zh": "作者观察到，普通网络随深度增加，精度先饱和再下降；更深网络不仅验证/测试表现变差，训练误差本身也更高。作者据此将其视为优化困难，而不是仅仅学好了训练数据却不能泛化的典型过拟合。这个解释限定于该退化现象，不意味着深网络永远不会过拟合。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "resnet_p001_c005",
+        "resnet_p001_c006",
+        "resnet_p002_c002",
+        "resnet_p004_c006",
+        "resnet_p005_c002",
+        "resnet_p007_c005"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "resnet_p001_c005",
+          "page_number": 1,
+          "quote": "Figure 1. Training error (left) and test error (right) on CIFAR-10\nwith 20-layer and 56-layer “plain” networks. The deeper network\nhas higher training error, and thus test error.",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p001_c006",
+          "page_number": 1,
+          "quote": "depth increasing, accuracy gets saturated (which might be\nunsurprising) and then degrades rapidly. Unexpectedly,\nsuch degradation is not caused by overﬁtting , and adding\nmore layers to a suitably deep model leads to higher train-\ning error, as reported in [11, 42] and thoroughly veriﬁed by\nour experiments.",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p002_c002",
+          "page_number": 2,
+          "quote": "the counterpart “plain” nets (that\nsimply stack layers) exhibit higher training error when the\ndepth increases;",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p004_c006",
+          "page_number": 4,
+          "quote": "The results in Table 2 show that the deeper 34-layer plain\nnet has higher validation error than the shallower 18-layer\nplain net.",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p005_c002",
+          "page_number": 5,
+          "quote": "34-layer plain net has higher training error throughout the\nwhole training procedure, even though the solution space\nof the 18-layer plain network is a subspace of that of the\n34-layer one.",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "resnet_p007_c005",
+          "page_number": 7,
+          "quote": "The deep plain nets suffer from increased depth,\nand exhibit higher training error when going deeper.",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "resnet-imagenet-152",
+      "document_id": "resnet",
+      "category": "result",
+      "query": "What top-1 and top-5 error rates does the 152-layer ResNet report on the ImageNet validation set?",
+      "query_zh": "152 层 ResNet 在 ImageNet 验证集报告的 top-1 和 top-5 错误率分别是多少？",
+      "reference_answer_zh": "问题涵盖两套测试设置，分别报告如下。表 3 的 10-crop 测试为 top-1 21.43%、top-5 5.71%；表 4 的单模型最佳结果为 top-1 19.38%、top-5 4.49%，结合 3.4 节说明采用全卷积和多尺度分数平均。3.57% 是模型集成在测试集上的 top-5 错误率，不是本题验证集单模型结果。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "resnet_p006_c001",
+        "resnet_p007_c001"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "resnet_p006_c001",
+          "page_number": 6,
+          "quote": "ResNet-152 21.43 5.71\nTable 3. Error rates (%, 10-crop testing) on ImageNet validation.",
+          "coverage_labels": [
+            "partial_one_of_two_required_settings"
+          ],
+          "additional_quotes": [
+            "ResNet-152 19.38 4.49\nTable 4. Error rates (%) of single-model results on the ImageNet\nvalidation set (except † reported on the test set)."
+          ]
+        },
+        {
+          "chunk_id": "resnet_p007_c001",
+          "page_number": 7,
+          "quote": "Our 152-layer ResNet has a single-model\ntop-5 validation error of 4.49%.",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "resnet-bottleneck",
+      "document_id": "resnet",
+      "category": "architecture",
+      "query": "What three convolutional layers make up the bottleneck residual block, and what is the purpose of its 1×1 layers?",
+      "query_zh": "瓶颈残差块由哪三层卷积构成？其中 1×1 卷积有什么作用？",
+      "reference_answer_zh": "三层依次是 1×1、3×3、1×1 卷积。第一个 1×1 降低通道维度，第二个 1×1 在 3×3 之后升维/恢复维度，使中间较昂贵的 3×3 在较少通道上处理，从而节省计算。图 5 右侧示例为通道 256→64→64→256，不是空间宽高 256→64。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "resnet_p006_c004"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "resnet_p006_c004",
+          "page_number": 6,
+          "quote": "The three layers\nare 1×1, 3×3, and 1×1 convolutions, where the 1×1 layers\nare responsible for reducing and then increasing (restoring)\ndimensions, leaving the 3×3 layer a bottleneck with smaller\ninput/output dimensions.",
+          "coverage_labels": [
+            "full"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "unet-paths-and-crops",
+      "document_id": "unet",
+      "category": "architecture",
+      "query": "How do the contracting and expansive paths of U-Net exchange fine-grained spatial information?",
+      "query_zh": "U-Net 的收缩路径和扩张路径如何传递精细的空间信息？",
+      "reference_answer_zh": "把收缩路径中对应层的高分辨率特征图复制并裁剪，与扩张路径上采样后的特征图按通道拼接，再由后续卷积融合定位细节和上下文。原版使用无填充卷积，会损失边缘像素，因此需裁剪以匹配空间尺寸；拼接不是逐元素相加。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "unet_p004_c002"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "unet_p004_c002",
+          "page_number": 4,
+          "quote": "Every step in the expansive path consists of an upsampling of the\nfeature map followed by a 2x2 convolution (“up-convolution”) that halves the\nnumber of feature channels, a concatenation with the correspondingly cropped\nfeature map from the contracting path, and two 3x3 convolutions, each fol-\nlowed by a ReLU. The cropping is necessary due to the loss of border pixels in\nevery convolution.",
+          "coverage_labels": [
+            "full"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "unet-overlap-tile",
+      "document_id": "unet",
+      "category": "inference",
+      "query": "Why do the authors use an overlap-tile strategy, and how are missing image regions near a border handled?",
+      "query_zh": "为什么使用重叠分块策略？图像边界附近缺失的区域如何处理？",
+      "reference_answer_zh": "原版只预测具有完整输入上下文的有效区域，输入块比输出区域大。用相互重叠的输入块提供上下文，再拼接各块有效输出，可无缝分割大图，避免整图分辨率受GPU显存限制。图像边缘缺失的上下文通过镜像输入图像补足。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "unet_p003_c001",
+        "unet_p003_c002"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "unet_p003_c001",
+          "page_number": 3,
+          "quote": "The network does not have any fully connected layers\nand only uses the valid part of each convolution, i.e., the segmentation map only\ncontains the pixels, for which the full context is available in the input image.\nThis strategy allows the seamless segmentation of arbitrarily large images by an\noverlap-tile strategy (see Figure 2). To predict the pixels in the border region\nof the image, the missing context is extrapolated by mirroring the input image.",
+          "coverage_labels": [
+            "full",
+            "partial"
+          ],
+          "additional_quotes": [
+            "Prediction of the segmentation in\nthe yellow area, requires image data within the blue area as input. Missing input data\nis extrapolated by mirroring"
+          ]
+        },
+        {
+          "chunk_id": "unet_p003_c002",
+          "page_number": 3,
+          "quote": "the border region\nof the image, the missing context is extrapolated by mirroring the input image.\nThis tiling strategy is important to apply the network to large images, since\notherwise the resolution would be limited by the GPU memory.",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "unet-elastic-deformation",
+      "document_id": "unet",
+      "category": "training",
+      "query": "Why is elastic deformation used as data augmentation in the biomedical segmentation experiments?",
+      "query_zh": "生物医学分割实验为什么使用弹性形变做数据增强？",
+      "reference_answer_zh": "可用标注图像少，而组织形变是这类图像常见的变化。对已有训练样本模拟逼真的弹性形变，可以高效增加变化，使网络学会对形变更鲁棒，而不必在原始标注图像库中事先收集这些变化。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "unet_p003_c002",
+        "unet_p006_c001"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "unet_p003_c002",
+          "page_number": 3,
+          "quote": "As for our tasks there is very little training data available, we use excessive\ndata augmentation by applying elastic deformations to the available training im-\nages. This allows the network to learn invariance to such deformations, without\nthe need to see these transformations in the annotated image corpus. This is\nparticularly important in biomedical segmentation, since deformation used to\nbe the most common variation in tissue and realistic deformations can be simu-\nlated eﬃciently.",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "unet_p006_c001",
+          "page_number": 6,
+          "quote": "microscopical images we primarily need shift and rotation invariance as well as\nrobustness to deformations and gray value variations. Especially random elas-\ntic deformations of the training samples seem to be the key concept to train\na segmentation network with very few annotated images.",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "unet-em-results",
+      "document_id": "unet",
+      "category": "result",
+      "query": "What warping error and Rand error does U-Net achieve on the electron-microscopy segmentation challenge?",
+      "query_zh": "U-Net 在电子显微图像分割挑战中取得的 warping error 和 Rand error 分别是多少？",
+      "reference_answer_zh": "正文报告warping error为0.0003529，Rand error为0.0382；对输入的7个旋转版本进行预测平均，且没有进一步前处理或后处理。表1将warping error舍入为0.000353，与正文不是两组实验；两个值是误差数值，不是百分号写法。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "unet_p006_c003"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "unet_p006_c003",
+          "page_number": 6,
+          "quote": "The u-net (averaged over 7 rotated versions of the input data) achieves with-\nout any further pre- or postprocessing a warping error of 0.0003529 (the new\nbest score, see Table 1) and a rand-error of 0.0382.",
+          "coverage_labels": [
+            "full"
+          ],
+          "additional_quotes": [
+            "1. u-net 0.000353 0.0382 0.0611"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "gan-two-models",
+      "document_id": "gan",
+      "category": "method",
+      "query": "What roles do the generator and discriminator play in the adversarial framework?",
+      "query_zh": "生成器和判别器各起什么作用？",
+      "reference_answer_zh": "生成器G将随机噪声映射为样本，学习数据分布，目标是生成能让判别器误判为真实的样本。判别器D估计输入来自真实数据而非生成器的概率，学习正确区分真实与生成样本。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "gan_p001_c002",
+        "gan_p001_c004",
+        "gan_p002_c001",
+        "gan_p002_c005",
+        "gan_p003_c002",
+        "gan_p003_c003",
+        "gan_p004_c002",
+        "gan_p003_c001"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "gan_p001_c002",
+          "page_number": 1,
+          "quote": "a generative model G\nthat captures the data distribution, and a discriminative model D that estimates\nthe probability that a sample came from the training data rather thanG. The train-\ning procedure for Gis to maximize the probability of Dmaking a mistake.",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "gan_p001_c004",
+          "page_number": 1,
+          "quote": "In the proposed adversarial nets framework, the generative model is pitted against an adversary: a\ndiscriminative model that learns to determine whether a sample is from the model distribution or the\ndata distribution. The generative model can be thought of as analogous to a team of counterfeiters,\ntrying to produce fake currency and use it without detection, while the discriminative model is\nanalogous to the police, trying to detect the counterfeit currency.",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "gan_p002_c001",
+          "page_number": 2,
+          "quote": "the generative model generates samples\nby passing random noise through a multilayer perceptron, and the discriminative model is also a\nmultilayer perceptron.",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "gan_p002_c005",
+          "page_number": 2,
+          "quote": "D(x) represents the probability\nthat x came from the data rather than pg. We train Dto maximize the probability of assigning the\ncorrect label to both training examples and samples fromG. We simultaneously train Gto minimize\nlog(1 −D(G(z))):",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "gan_p003_c002",
+          "page_number": 3,
+          "quote": "Rather than training G to minimize\nlog(1 −D(G(z))) we can train Gto maximize log D(G(z)).",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "gan_p003_c003",
+          "page_number": 3,
+          "quote": "After an update to G, gradient of Dhas guided G(z) to ﬂow to regions that are more likely\nto be classiﬁed as data.",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "gan_p004_c002",
+          "page_number": 4,
+          "quote": "Note that the training objective for D can be interpreted as maximizing the log-likelihood for es-\ntimating the conditional probability P(Y = y|x), where Y indicates whether x comes from pdata\n(with y= 1) or from pg (with y= 0).",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "gan_p003_c001",
+          "page_number": 3,
+          "quote": "V(D,G) =Ex∼pdata(x)[log D(x)] +Ez∼pz(z)[log(1 −D(G(z)))]. (1)",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "gan-minimax-objective",
+      "document_id": "gan",
+      "category": "objective",
+      "query": "What minimax value function do the generator and discriminator optimize in the proposed framework?",
+      "query_zh": "双方优化的极小极大价值函数是什么？",
+      "reference_answer_zh": "min_G max_D V(D,G)=E_{x~p_data}[log D(x)]+E_{z~p_z}[log(1-D(G(z)))]. D最大化此目标，G最小化。论文另提到G可改为最大化E[log D(G(z))]来缓解早期梯度弱的问题，该替代目标与原始minimax公式不同。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "gan_p003_c001",
+        "gan_p002_c005",
+        "gan_p004_c002"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "gan_p003_c001",
+          "page_number": 3,
+          "quote": "min\nG\nmax\nD\nV(D,G) =Ex∼pdata(x)[log D(x)] +Ez∼pz(z)[log(1 −D(G(z)))]. (1)",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "gan_p002_c005",
+          "page_number": 2,
+          "quote": "We train Dto maximize the probability of assigning the\ncorrect label to both training examples and samples fromG. We simultaneously train Gto minimize\nlog(1 −D(G(z))):",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "gan_p004_c002",
+          "page_number": 4,
+          "quote": "The training criterion for the discriminator D, given any generator G, is to maximize the\nquantity V(G,D)",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "gan-training-step",
+      "document_id": "gan",
+      "category": "training",
+      "query": "In Algorithm 1, how many discriminator updates are used per generator update in the authors' experiments?",
+      "query_zh": "实验中每更新一次生成器，判别器更新几次？",
+      "reference_answer_zh": "1次，即k=1；每轮先更新判别器1步，再更新生成器1步。k是可选超参数，并非所有GAN都必须取1。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "gan_p004_c001"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "gan_p004_c001",
+          "page_number": 4,
+          "quote": "The number of\nsteps to apply to the discriminator, k, is a hyperparameter. We used k = 1, the least expensive option, in our\nexperiments.",
+          "coverage_labels": [
+            "full"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "gan-global-optimum",
+      "document_id": "gan",
+      "category": "theory",
+      "query": "At the global optimum described by the authors, what relationship holds between the generator distribution and the data distribution, and what value does the discriminator take?",
+      "query_zh": "理论全局最优时，生成分布与数据分布是什么关系，判别器取什么值？",
+      "reference_answer_zh": "p_g=p_data；在相关数据支持域内，最优判别器D*(x)=1/2。生成样本与真实数据具有相同分布，判别器无法从分布上区分二者。这是论文非参数理想设定下的最优状态，不保证实际有限神经网络训练都达到；无概率质量区域的D值不影响目标。",
+      "human_review_status": "reference_answer_confirmed_chunk_labels_ai_assisted",
+      "relevant_chunk_ids": [
+        "gan_p001_c002",
+        "gan_p003_c003",
+        "gan_p003_c004",
+        "gan_p005_c001",
+        "gan_p005_c002"
+      ],
+      "evidence": [
+        {
+          "chunk_id": "gan_p001_c002",
+          "page_number": 1,
+          "quote": "In the space of arbitrary\nfunctions Gand D, a unique solution exists, with Grecovering the training data\ndistribution and Dequal to 1\n2 everywhere.",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "gan_p003_c003",
+          "page_number": 3,
+          "quote": "they will reach a\npoint at which both cannot improve because pg = pdata. The discriminator is unable to differentiate between\nthe two distributions, i.e. D(x) = 1\n2 .",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "gan_p003_c004",
+          "page_number": 3,
+          "quote": "We will show in section 4.1 that this minimax game has a global optimum for pg = pdata.",
+          "coverage_labels": [
+            "partial"
+          ]
+        },
+        {
+          "chunk_id": "gan_p005_c001",
+          "page_number": 5,
+          "quote": "The global minimum of the virtual training criterion C(G) is achieved if and only if\npg = pdata. At that point, C(G) achieves the value −log 4.\nProof. For pg = pdata, D∗\nG(x) =1\n2 , (consider Eq. 2).",
+          "coverage_labels": [
+            "full"
+          ]
+        },
+        {
+          "chunk_id": "gan_p005_c002",
+          "page_number": 5,
+          "quote": "If Gand Dhave enough capacity, and at each step of Algorithm 1, the discriminator\nis allowed to reach its optimum given G, and pg is updated so as to improve the criterion\nEx∼pdata [log D∗\nG(x)] +Ex∼pg [log(1 −D∗\nG(x))]\nthen pg converges to pdata",
+          "coverage_labels": [
+            "partial"
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "12 questions on 3 classic papers only; English, within-document retrieval.",
+    "AI-assisted chunk annotation; human confirmation is limited to reference answers and locations.",
+    "No independent expert annotation, exhaustive-label guarantee, unanswerable questions, or answer-generation evaluation."
+  ]
+}

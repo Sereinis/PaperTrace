@@ -1,0 +1,3 @@
+# 固定发布评测数据的换行，保证字节哈希跨平台一致。
+/data/eval/retrieval-independent-v1.json text eol=lf
+/data/eval/retrieval-independent-v1-results.json text eol=lf

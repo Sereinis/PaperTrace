@@ -4,7 +4,7 @@ PaperTrace 是一个面向英文计算机论文的实验信息提取与证据追
 
 ## 当前状态
 
-v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感知分块、chunk JSON 输出、英文关键词检索与本地余弦向量检索。硅基流动 BGE-M3 适配层支持可追溯向量快照及内容缓存，现已完成三篇论文、247 个分块、12 个英文问题的固定 v2 开发集对比，并验证查询缓存可离线复跑。向量方法提高了本轮 Recall@5，但未全面改善排名；开发集未经独立人工验证。带证据问答和结构化实验抽取尚未实现。
+v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感知分块、chunk JSON 输出、英文关键词检索、本地余弦向量检索与 RRF 混合检索。硅基流动 BGE-M3 适配层支持可追溯向量快照及内容缓存。已完成固定 v2 开发集对比，以及新增 ResNet、U-Net、GAN 三篇论文的首次留出测试；两组数据分别记录，不混合汇总。留出测试的参考答案与论文位置经人工核对，chunk 标注仍为 AI 辅助、未经独立人工穷尽核验。带证据问答和结构化实验抽取尚未实现。
 
 已完成的 v0.1 范围：
 
@@ -76,19 +76,29 @@ python -m papertrace.cli data/papers/attention_is_all_you_need.pdf `
 
 完整运行命令、指标口径和失败案例见 [检索评测协议](docs/retrieval-evaluation.md)。当前评测限定为指定论文内检索，不评估最终答案正确率。
 
-`python -m papertrace.vector_eval_cli` 在同一语料、查询和金标上比较关键词与 BGE-M3 稠密向量检索，输出总体、分论文和逐问题结果。分块向量取自完整快照，查询向量按文本和模型配置缓存；缓存全部命中时无需密钥或网络。首次生成缺失向量会调用计费 API。
+`python -m papertrace.vector_eval_cli` 在同一语料、查询和金标上比较关键词、BGE-M3 稠密向量与 RRF 混合检索，输出总体、分论文和逐问题结果。分块向量取自完整快照，查询向量按文本和模型配置缓存；缓存全部命中时无需密钥或网络。首次生成缺失向量会调用计费 API。
 
 ```powershell
 python -m papertrace.vector_eval_cli --vectors artifacts/retrieval-dev-v2-vectors-20261031.json --dataset data/eval/retrieval-dev.json --query-cache-dir artifacts/retrieval-query-cache-20261031 --output artifacts/retrieval-comparison-v2-new.json --ks 1 3 5
 ```
 
-2026-10-31 的固定 v2 开发集结果：关键词 / 向量 Recall@5 为 0.8528 / 0.9250，MRR@5 为 0.9167 / 0.8958；第一版 RRF 混合检索 Recall@5 为 0.9389、MRR@5 为 0.9583。该混合结果只是在已观察的开发集上得到，不能据此宣称方法已经泛化；完整口径和退化案例见评测协议。
+2026-10-31 的固定 v2 开发集结果：关键词 / 向量 Recall@5 为 0.8528 / 0.9250，MRR@5 为 0.9167 / 0.8958；第一版 RRF 混合检索 Recall@5 为 0.9389、MRR@5 为 0.9583。该混合结果仅来自已观察的开发集，尚不足以证明泛化能力；完整口径和退化案例见评测协议。
+
+2026-11-02 的首次留出测试包含 12 个英文问题、130 个候选分块、38 个问题—证据关联，问题与金标在查看排名前冻结：
+
+| 方法 | Recall@5 | MRR@5 | Hit@5 |
+| --- | ---: | ---: | ---: |
+| 关键词 | 0.7306 | 0.7667 | 11/12 |
+| BGE-M3 向量 | 0.7417 | 0.8333 | 11/12 |
+| RRF 混合 | 0.7660 | 0.8403 | 12/12 |
+
+这些是按问题宏平均的指标；部分直接证据也计相关，Hit@5 不代表完整回答。混合在该样本总体指标最高，但累计命中证据少于纯向量，也有逐题退化。冻结数据与不含原文的逐问排名摘要分别位于 [测试集](data/eval/retrieval-independent-v1.json) 和 [结果摘要](data/eval/retrieval-independent-v1-results.json)；标注、复现与失败案例见 [首次留出测试记录](docs/independent-test-v1.md)。结果现已观察，后续用于回归检查和误差分析，不再属于未见测试。
 
 ## 当前限制
 
 - 暂不处理扫描版 PDF 和 OCR；
 - 复杂公式、表格和双栏阅读顺序可能存在解析误差；
-- 检索对比仅覆盖小规模、AI 辅助标注的英文开发集，没有独立测试集或无答案问题；尚未验证跨论文检索、最终答案或结构化实验字段抽取。
+- 检索对比仅覆盖小规模英文开发集和首次留出测试；完整 chunk 金标未经独立人工穷尽核验，没有无答案问题，尚未验证跨论文检索、最终答案或结构化实验字段抽取。
 
 ## BGE-M3 文本向量化
 
@@ -115,7 +125,7 @@ print(len(vectors), len(vectors[0]))
 python -m papertrace.embed_cli --chunks artifacts/attention-chunks.json --cache-dir artifacts/embedding-cache --output artifacts/attention-vectors.json
 ```
 
-首次运行会发送缺失文本到硅基流动，可能消耗额度；相同模型与文本再次运行复用缓存。命令拒绝覆盖已有输出，请使用新的输出文件名。缓存和完整向量快照应保留在被 Git 忽略的 `artifacts/` 下。缓存身份、失败恢复与命令参数见 [分块向量化与缓存](docs/embedding-cache.md)。
+首次运行会发送缺失文本到硅基流动，可能消耗额度；相同模型与文本再次运行复用缓存。命令拒绝覆盖已有输出，复跑使用新的输出文件名。本项目将缓存和完整向量快照保存在被 Git 忽略的 `artifacts/` 下。缓存身份、失败恢复与命令参数见 [分块向量化与缓存](docs/embedding-cache.md)。
 
 使用向量快照执行一次本地检索：
 
