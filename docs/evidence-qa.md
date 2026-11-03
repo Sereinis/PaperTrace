@@ -4,7 +4,7 @@
 
 `papertrace.qa.answer_question` 将现有检索器和文本生成适配层连接起来：先限定论文候选，再检索，生成逐条结论和引用，最后检查引用身份与精确摘录。该接口不改变关键词、向量或 RRF 排名算法，不添加重排序、自动补检索或生成重试。
 
-目前提供 Python 函数入口，尚无单问题CLI、网页或用户API配置页面；上层新增[单实验字段化证据报告](experiment-report.md)，首轮与查询/规则分离后的真实开发回归均未通过范围与覆盖验收，未实现数值关系槽位抽取。DeepSeek 适配层已完成通用 JSON 连通性验证；问答流程已完成离线模拟、三题v1真实开发冒烟及同题v2真实回归。v2本次引用与候选原文相符，但仅覆盖已观察开发样本，尚未完成生成质量验收，不将 v0.2 整体标为验收完成。
+现已提供 `python -m papertrace.qa_cli` 单问题命令行入口，支持关键词、向量和混合检索，以及 text/JSON 输出；尚无网页或用户 API 配置页面。上层新增[单实验字段化证据报告](experiment-report.md)，首轮与查询/规则分离后的真实开发回归均未通过范围与覆盖验收，未实现数值关系槽位抽取。DeepSeek 适配层已完成通用 JSON 连通性验证；问答流程已完成离线模拟、三题v1真实开发冒烟及同题v2真实回归。v2本次引用与候选原文相符，但仅覆盖已观察开发样本，尚未完成生成质量验收，不将 v0.2 整体标为验收完成。
 
 ## 输入与调用顺序
 
@@ -92,6 +92,44 @@
 客户端限制：问题最多 4000 字符；Top-K 为 1—20；上下文 JSON 不超过 64000 UTF-8 字节；答案不超过 128000 UTF-8 字节；最多 20 条结论、每条最多 20 条引用。超限明确失败，不静默截断。字节/字符上限不是模型 token 上限，生成适配层仍执行自己的限制。
 
 ## 使用示例
+
+### 单问题命令行
+
+关键词检索不需要向量快照；有候选且通过问答预检后才创建 DeepSeek 客户端，按进程环境优先、项目 `.env` 其次读取 `DEEPSEEK_API_KEY`，最多调用一次，不自动重试。关键词无候选时不需要生成密钥：
+
+```powershell
+python -m papertrace.qa_cli `
+  --chunks artifacts/attention-chunks.json `
+  --document-id attention_is_all_you_need `
+  --query "What mechanism replaces recurrence in the Transformer?"
+```
+
+可选参数：
+
+- `--retrieval keyword|vector|hybrid`：选择检索方式，默认 `keyword`；后两者必须提供 `--vectors` 标准向量快照。
+- `--top-k`：候选数量，范围 1—20；`--preserve-source-candidates` 让混合检索保留两路各 Top-K 并集。
+- `--format text|json`：默认输出中文摘要，JSON 输出包含候选、精确引用、页码、偏移和用量。
+- `--output PATH`：保存到新文件；CLI 拒绝覆盖已有文件。
+- `--model deepseek-flash|deepseek-v4-pro` 与 `--max-tokens`：控制生成适配器参数。
+
+向量或混合模式的完整命令示例：
+
+```powershell
+python -m papertrace.qa_cli `
+  --chunks artifacts/attention-chunks.json `
+  --document-id attention_is_all_you_need `
+  --query "What mechanism replaces recurrence in the Transformer?" `
+  --retrieval hybrid --vectors artifacts/attention-vectors.json `
+  --format json --output artifacts/answer-new.json
+```
+
+所有输入分块必须在标准快照中找到相同原文和全部元数据；只同编号不算匹配。CLI 先检查全部记录，再为指定论文建立子快照，额外论文不会参与排名。向量/混合模式每次产生一次查询向量化请求，需要 `SILICONFLOW_API_KEY`，暂不使用查询缓存；分块向量不重新生成。`keyword` 模式不接受无效用途的 `--vectors`；候选并集开关仅适用于 `hybrid`。
+
+text 输出包含问题、论文、状态、结论、英文引文、页码、chunk/segment ID、块内字符偏移、缺失项及已知用量；明确提示语义支持仍为 `not_verified`。不可信文本中的终端控制字符转为可见转义，JSON 文件保留原文本。CLI 的失败诊断保留受控类型、阶段/细分码和可获得的合法用量，不输出密钥、候选正文或模型失败正文；生成后的落盘失败也可能已经计费。
+
+有 `--output` 时会在计费前检查目标、父路径及同目录临时文件可写性；完成后通过无覆盖硬链接发布，若目标在生成期间被其他进程创建则报错，保留对方文件并清理临时文件。不支持硬链接的文件系统无法使用文件输出，可省略 `--output` 在终端查看。该检查不保证剩余磁盘空间或之后的文件系统状态。JSON 包含候选原文，text 也包含引用；保存和公开均需考虑原文版权与隐私。
+
+2026-11-03 对已观察的开发题 `attention-hardware` 完成一次真实 CLI 冒烟。使用原有54块 Transformer 语料，关键词 Top-5，不创建向量客户端；通过 `qa_cli.main(argv)` 执行真实参数解析、检索、生成及 JSON 文件发布，未新启子进程执行 `python -m`。实际 DeepSeek 传输入口1次、无重试、新向量请求0次，CLI退出码0。答案为一台配备8块NVIDIA P100 GPU的机器、训练100,000步，两条引用来自第7页 `attention_is_all_you_need_p007_c005`；原文、页码、身份与块内偏移核验通过，助手对照候选确认覆盖本题两个要点。JSON保存成功后直接用同一结果离线渲染终端文本，没有为展示再调用模型。输入2996、输出75、总3071 tokens，未核对账单；运行期间源码与语料哈希保持不变。本次为已观察开发题的接口冒烟，不是独立质量验收；向量/混合CLI路径仅有离线测试，`semantic_support`仍为`not_verified`。答案与核验记录位于被Git忽略的 `artifacts/CLI硬件冒烟答案_20261103.json`、`artifacts/CLI硬件冒烟核验_20261103.json`。
 
 下面示例以现有单篇向量快照连接实际混合检索与 DeepSeek；运行可能产生一次硅基流动查询向量请求和一次 DeepSeek 生成请求，没有候选或前置校验失败时可能不调用生成器。它不是本次已执行的真实问答记录。
 
