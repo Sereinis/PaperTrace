@@ -2,7 +2,7 @@
 
 ## 当前范围
 
-`papertrace/generation.py` 提供 `TextGenerator` 协议、`GenerationResult` 结果结构和 `DeepSeekGenerator` 官方 API 实现。该层只负责文本生成与响应边界，不读取 PDF、不执行检索，也不验证答案是否被论文证据支持。上层已提供[带引用问答与引用定位检查](evidence-qa.md)的离线模拟闭环；结构化实验抽取及线上用户密钥管理尚未实现。
+`papertrace/generation.py` 提供 `TextGenerator` 协议、`GenerationResult` 结果结构和 `DeepSeekGenerator` 官方 API 实现。该层只负责文本生成与响应边界，不读取 PDF、不执行检索，也不验证答案是否被论文证据支持。上层已提供[带引用问答与引用定位检查](evidence-qa.md)，并新增[字段化证据报告](experiment-report.md)：首次及分离查询与抽取规则后的真实回归均未通过范围/覆盖验收；结构化数值关系抽取及线上用户密钥管理尚未实现。
 
 生成协议使用 `generate(messages, *, max_tokens, temperature, json_mode)`；后续问答逻辑可以依赖协议，其他服务商通过单独的适配器接入。当前 DeepSeek 实现不接受自定义 URL，不把任意服务地址视作已验证兼容。
 

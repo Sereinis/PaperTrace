@@ -1,6 +1,7 @@
 """离线验证论文内问答、引用映射、拒答与外部组件边界。"""
 
 import copy
+import hashlib
 import json
 import traceback
 
@@ -113,6 +114,115 @@ def test_document_filtering_precedes_retriever_creation(chunks):
                              retriever_factory=factory, generator=Generator())
     assert [c["chunk_id"] for c in received] == ["a1", "a2"]
     assert all(c["document_id"] == "a" for c in result["evidence"])
+
+
+def test_separate_retrieval_and_trusted_application_instructions(chunks):
+    """检索只收到指定检索词，应用规则仅进入系统消息并留下实际哈希。"""
+    searches = []
+
+    class RecordingRetriever(KeywordRetriever):
+        """记录检索输入。"""
+
+        def search(self, query, top_k):
+            """保存查询后使用真实关键词检索器。"""
+            searches.append(query)
+            return super().search(query, top_k)
+
+    client = Generator()
+    query = '{"field":"model","experiment_scope":"untrusted-scope"}'
+    result = answer_question(query, "a", chunks, retriever_factory=RecordingRetriever,
+                             generator=client, retrieval_query="attention",
+                             generation_instructions="只抽取目标模型。")
+    messages = client.calls[0][0]
+    assert searches == ["attention"]
+    assert result["query"] == json.loads(messages[1]["content"])["question"] == query
+    assert result["retrieval_query"] == "attention"
+    assert messages[0]["content"] == qa._SYSTEM_PROMPT + "\n只抽取目标模型。"
+    assert query not in messages[0]["content"]
+    assert result["system_prompt_sha256"] == hashlib.sha256(messages[0]["content"].encode()).hexdigest()
+    assert result["validation"]["semantic_support"] == "not_verified"
+
+
+def test_default_query_and_system_prompt_remain_unchanged(chunks):
+    """不使用新选项时检索与生成保持原协议，不改变已有单问题行为。"""
+    client = Generator()
+    result = run(chunks, client)
+    assert result["query"] == result["retrieval_query"]
+    assert client.calls[0][0][0]["content"] == qa._SYSTEM_PROMPT
+    assert result["prompt_version"] == qa.PROMPT_VERSION
+
+
+def test_source_union_is_explicit_and_preserves_authoritative_evidence(chunks):
+    """显式启用时允许两路并集多于K，仍逐项检查原始来源与引用偏移。"""
+    class Source:
+        """两个路由分别命中同一论文的不同分块。"""
+
+        def __init__(self, chunk):
+            """保存单个权威分块。"""
+            self.chunk, self.calls = chunk, []
+
+        def search(self, query, top_k):
+            """返回一条合法检索结果并记录预算。"""
+            self.calls.append((query, top_k))
+            return [copy.deepcopy(self.chunk) | {"score": 1.0, "rank": 1}]
+
+    keyword, vector = Source(chunks[0]), Source(chunks[1])
+    client = Generator()
+    result = answer_question("attention", "a", chunks,
+                             retriever_factory=lambda _: HybridRetriever(keyword, vector),
+                             generator=client, top_k=1, preserve_source_candidates=True)
+    assert [e["chunk_id"] for e in result["evidence"]] == ["a1", "a2"]
+    assert result["top_k"] == 1 and result["candidate_limit"] == 2
+    assert result["retrieval_policy"] == "source_union"
+    assert keyword.calls == vector.calls == [("attention", 1)]
+    assert json.loads(client.calls[0][0][1]["content"])["evidence"][1]["evidence_id"] == "E2"
+
+
+def test_union_option_falls_back_for_single_retriever(chunks):
+    """单路检索器没有并集能力时保持普通搜索并如实记录。"""
+    result = run(chunks, preserve_source_candidates=True)
+    assert result["retrieval_policy"] == "ranked" and result["candidate_limit"] == 5
+
+
+@pytest.mark.parametrize("value", [None, 1, "yes"])
+def test_union_option_rejects_non_boolean_before_retrieval(chunks, value):
+    """并集策略必须显式布尔值，非法值不触发检索。"""
+    def forbidden(*args):
+        """不允许构造外部组件。"""
+        pytest.fail("unexpected search")
+
+    with pytest.raises(QAError):
+        answer_question("attention", "a", chunks, retriever_factory=forbidden,
+                        generator=Generator(), preserve_source_candidates=value)
+
+
+@pytest.mark.parametrize("key", ["retrieval_query", "generation_instructions"])
+@pytest.mark.parametrize("value", ["", " ", 12, [], {}, "x" * 4001, "\ud800"])
+def test_invalid_separate_inputs_fail_before_components(chunks, key, value):
+    """新参数在创建检索器之前完整校验，不产生外部调用。"""
+    client = Generator()
+
+    def forbidden(selected):
+        """非法参数不允许构建检索器。"""
+        pytest.fail("unexpected retrieval")
+
+    with pytest.raises(QAError) as caught:
+        answer_question("attention", "a", chunks, generator=client,
+                        retriever_factory=forbidden, **{key: value})
+    assert caught.value.code == "invalid_input"
+    assert client.calls == []
+
+
+def test_empty_separate_query_results_preserve_audit_without_generation(chunks):
+    """单独检索词无候选时仍记录实际文本及系统哈希，不调用模型。"""
+    client = Generator()
+    result = run(chunks, client, retrieval_query="zzzzunknown",
+                 generation_instructions="只抽取指定字段。")
+    assert result["status"] == "insufficient"
+    assert result["retrieval_query"] == "zzzzunknown"
+    assert result["system_prompt_sha256"] == hashlib.sha256(
+        (qa._SYSTEM_PROMPT + "\n只抽取指定字段。").encode()).hexdigest()
+    assert client.calls == []
 
 
 def test_empty_results_abstain_without_generation(chunks):
@@ -315,8 +425,22 @@ def test_invalid_model_contract(chunks, mode):
     elif mode == "nonlist-citations":
         claim["citations"] = {}
     generator = Generator(data)
-    with pytest.raises(QAError):
+    with pytest.raises(QAError) as caught:
         run(chunks, generator)
+    expected = {
+        "extra": "fields_invalid", "status": "status_invalid",
+        "missing-claims": "status_inconsistent", "missing-gap": "status_inconsistent",
+        "answered-gap": "status_inconsistent", "insufficient-claims": "status_inconsistent",
+        "no-citation": "citations_invalid", "unknown-id": "citation_unknown",
+        "wrong-quote": "citation_fields_invalid", "duplicate-citation": "citation_duplicate",
+        "extra-source": "citation_fields_invalid", "empty-claim": "claim_invalid",
+        "nontext-claim": "claim_invalid", "too-many-claims": "claims_invalid",
+        "bad-gap": "missing_info_invalid", "nonlist-citations": "citations_invalid",
+    }
+    assert caught.value.diagnostics["validation_stage"] == "answer_validation"
+    assert caught.value.diagnostics["detail_code"] == expected[mode]
+    assert caught.value.code == ("citation_invalid" if expected[mode].startswith("citation_")
+                                 else "answer_contract_invalid")
     assert len(generator.calls) == 1
 
 

@@ -70,3 +70,56 @@ def test_hybrid_requires_search_methods(bad):
     """初始化时拒绝没有 search 方法的对象。"""
     with pytest.raises(HybridSearchError):
         HybridRetriever(bad, bad)
+
+
+def test_union_keeps_single_source_hits_that_final_top_k_drops():
+    """两路并集保留单路有效候选，普通搜索结果与旧行为不变。"""
+    class Retriever:
+        """提供带共享干扰项的合成排名。"""
+
+        def __init__(self, ids):
+            """记录各路预设顺序。"""
+            self.ids, self.calls = ids, []
+
+        def search(self, query, top_k):
+            """每路只返回请求数量且记录调用预算。"""
+            self.calls.append((query, top_k))
+            return [row(cid, rank=i) for i, cid in enumerate(self.ids[:top_k], 1)]
+
+    first, second = Retriever(["a", "b", "data"]), Retriever(["a", "b", "table"])
+    index = HybridRetriever(first, second)
+    assert [r["chunk_id"] for r in index.search("q", 3)] == ["a", "b", "data"]
+    merged = index.search_candidates("q", 3)
+    assert [r["chunk_id"] for r in merged] == ["a", "b", "data", "table"]
+    assert [r["rank"] for r in merged] == [1, 2, 3, 4]
+    assert first.calls == second.calls == [("q", 3), ("q", 3)]
+    merged[0]["text"] = "mutated"
+    assert index.search_candidates("q", 3)[0]["text"] == "text"
+
+
+@pytest.mark.parametrize("bad", [True, 0, -1, 1.5])
+def test_union_invalid_k_before_search(bad):
+    """并集入口的非法数量不触发底层检索。"""
+    class Forbidden:
+        """在非法参数下不应被调用。"""
+
+        def search(self, *args):
+            """意外调用直接失败。"""
+            pytest.fail("unexpected search")
+
+    with pytest.raises(HybridSearchError):
+        HybridRetriever(Forbidden(), Forbidden()).search_candidates("q", bad)
+
+
+@pytest.mark.parametrize("output", [None, {}, [row("a"), row("b")]])
+def test_union_rejects_unbounded_or_malformed_source(output):
+    """并集不能绕过单路返回数量和列表契约。"""
+    class Source:
+        """故意违反单路契约。"""
+
+        def search(self, query, top_k):
+            """返回测试注入的畸形结果。"""
+            return output
+
+    with pytest.raises(HybridSearchError):
+        HybridRetriever(Source(), Source()).search_candidates("q", 1)

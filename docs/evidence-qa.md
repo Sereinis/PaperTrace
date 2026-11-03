@@ -4,13 +4,23 @@
 
 `papertrace.qa.answer_question` 将现有检索器和文本生成适配层连接起来：先限定论文候选，再检索，生成逐条结论和引用，最后检查引用身份与精确摘录。该接口不改变关键词、向量或 RRF 排名算法，不添加重排序、自动补检索或生成重试。
 
-目前提供 Python 函数入口，尚未新增单问题 CLI、网页问答、结构化实验报告或用户 API 配置页面。DeepSeek 适配层已完成通用 JSON 连通性验证；问答流程已完成离线模拟、三题v1真实开发冒烟及同题v2真实回归。v2本次引用与候选原文相符，但仅覆盖已观察开发样本，尚未完成生成质量验收，不将 v0.2 整体标为验收完成。
+目前提供 Python 函数入口，尚无单问题CLI、网页或用户API配置页面；上层新增[单实验字段化证据报告](experiment-report.md)，首轮与查询/规则分离后的真实开发回归均未通过范围与覆盖验收，未实现数值关系槽位抽取。DeepSeek 适配层已完成通用 JSON 连通性验证；问答流程已完成离线模拟、三题v1真实开发冒烟及同题v2真实回归。v2本次引用与候选原文相符，但仅覆盖已观察开发样本，尚未完成生成质量验收，不将 v0.2 整体标为验收完成。
 
 ## 输入与调用顺序
 
 输入为问题 `query`、论文身份 `document_id`、候选 `chunks`、`retriever_factory` 与 `generator`。`chunks` 可以包含多篇论文，但所有分块先检查来源、唯一 ID、页码和合法 JSON 元数据。随后只把指定论文的深拷贝交给检索器工厂；不先全库检索再过滤。
 
+可选 `retrieval_query` 单独指定检索文本（非空UTF-8、最多4000字符），缺省仍使用 `query`。可选 `generation_instructions` 为可信应用代码提供的固定系统补充指令（同样最多4000字符），不参与检索；不能直接传入终端用户的范围、问题或论文原文作为该参数。两项均在构建检索器前检查，`None` 表示缺省。返回结果新增 `retrieval_query`，`query` 仍为给生成模型的问题；`system_prompt_sha256` 对实际完整系统提示计算。默认系统提示与片段选择协议未变，补充规则不会自动成为语义验证。
+
 工厂接收当前论文的分块列表，返回提供 `search(query, top_k)` 的检索器。现有 `KeywordRetriever` 可以直接作为工厂。使用向量或混合检索时，工厂需按传入分块建立标准子快照，保留同一向量配置并重算有序 chunk 指纹；不能将多篇快照直接当作当前论文候选。工厂是可信的程序扩展边界，程序会检查返回来源，但不能证明自定义组件内部实际检索了什么。
+
+可选 `preserve_source_candidates=True` 使用支持的 `search_candidates(query, top_k)` 入口，保留两路各Top-K并集（最多2K条），返回 `retrieval_policy=source_union`、`candidate_limit=2K`，仍校验权威来源与排名。无该入口时回退普通搜索并如实记录 `ranked`；默认值为False，旧问答和评测策略不变。报告层默认显式开启，并额外执行逐条范围复核；普通 `answer_question` 不增加复核生成调用。并集不增加单路深度或查询向量请求，但会增加上下文长度，超过64KB仍失败而非静默截断。
+
+报告v3真实开发回归已执行到第三字段的抽取阶段，在答案契约校验处停止；未生成完整报告或留存部分报告，尚无报告范围复核的真实质量结论，详见报告验证记录。此失败未改变普通问答协议或既有回归结论。
+
+后续使用安全细分诊断单独重跑结果字段，两步协议均完成，但复核后仅保留包含英法任务的表2评测说明，未保留目标base成绩，仍未通过质量验收。此次未复现旧结构错误；不能反推旧失败根因，也不能把模型过滤等同于语义验证，详见报告单字段回归记录。
+
+报告v4仅在复核层新增该条引用的原始分块上下文与 `scope_review.claim_audit` 审计；普通问答的选中摘录、偏移、分句和提示协议未改变。复核依据可包含上下文，短引用本身仍可能不充分，不能把复核保留视为独立支持验证。审计含被过滤正文/引用，展示最终答案只使用 `qa.claims`；详见报告说明。此次修订仅离线验证。
 
 检索结果必须具有连续排名、有限分数和与原语料完全一致的元数据。未知、跨论文、重复或内容被改写的分块会被拒绝。程序为候选分配本次局部 ID `E1`、`E2` 等；ID 只在本次回答内有效，不代替稳定 chunk ID。
 
@@ -55,9 +65,25 @@
 
 成功返回普通字典，当前 `schema_version=2`，包含问题、论文、候选范围、有序语料指纹、Top-K、全部本次候选原文与预编号片段、检查后的结论和引用、缺失列表、生成模型与用量等元数据。`prompt_version` 和系统提示 SHA-256 标识当前提示协议。v1 的模型输出 `evidence_id/quote` 与当前协议不兼容，不静默接受旧格式；首次v1报告保留不变。指纹用于身份复核，不是签名，也不证明 PDF 解析或来源本身正确。
 
-输出包含论文原文和问题，默认不落盘；后续保存、公开或上传时需考虑原文版权和隐私。错误的 `QAError.diagnostics` 只包含受控 `code`、可选 `http_status` 与合法 `usage`，不包含问题、候选、生成正文、请求ID或部分答案。生成已返回合法用量、但答案结构或片段选择失败时，统计仍可保留；生成适配层解析到合法用量但拒绝正文/截断结果时，也将统计传给问答层。网络失败、无法解析响应或统计畸形时保持未知，不估算。原始失败输出仍不保存，诊断不能恢复全部失败原因，费用需结合账单。
+输出包含论文原文和问题，默认不落盘；后续保存、公开或上传时需考虑原文版权和隐私。错误的 `QAError.diagnostics` 包含受控 `code`、可选 `http_status` 与合法 `usage`；遇到已细分的校验失败时，额外提供白名单 `validation_stage` 和 `detail_code`。不包含问题、候选、生成正文、请求ID、原始错误位置或部分答案。生成已返回合法用量、但答案结构或片段选择失败时，统计仍可保留；生成适配层解析到合法用量但拒绝正文/截断结果时，也将统计传给问答层。网络失败、无法解析响应或统计畸形时保持未知，不估算。原始失败输出仍不保存，诊断不能恢复全部失败原因，费用需结合账单。
 
 常见错误类型为 `citation_invalid`、`answer_contract_invalid`、`generation_failed`、`retrieval_failed`、`context_too_large`；其他前置检查使用 `invalid_input`。可在捕获 `QAError` 后记录 `error.diagnostics`，但不应记录异常局部变量或组件原始响应。
+
+细分诊断不改变上述大类或已有接受规则；没有合法阶段/细分码时不添加新键。检测到多处错误时只报告校验顺序中的第一项，不代表响应没有其他问题。
+
+| `validation_stage` | `detail_code` | 含义 |
+| --- | --- | --- |
+| `answer_validation` | `content_invalid` / `content_too_large` | 空、非法类型/编码、字符超限，或UTF-8字节超限 |
+| `answer_validation` | `json_invalid` / `fields_invalid` | 严格JSON解析失败（含重复键/非法常量等），或顶层类型/字段集合不符 |
+| `answer_validation` | `status_invalid` / `status_inconsistent` | 状态不合法，或与结论/缺失项不一致 |
+| `answer_validation` | `claims_invalid` / `missing_info_invalid` / `claim_invalid` | 结论列表、缺失列表或单条结论结构/文本不符 |
+| `answer_validation` | `citations_invalid` / `citation_fields_invalid` | 引用数量/列表不符，或引用字段/编号格式不符 |
+| `answer_validation` | `citation_unknown` / `citation_duplicate` / `citation_quote_mismatch` | 编号不属于候选、同结论引用重复、原文范围不符 |
+| `scope_review` | `result_invalid` / `metadata_invalid` / `usage_invalid` | 复核结果类型/结束/大小、元数据或用量不符 |
+| `scope_review` | `json_invalid` / `fields_invalid` | 复核JSON解析失败或顶层结构不符 |
+| `scope_review` | `decision_count_invalid` / `decision_invalid` | 复核判定列表数量不符，或索引/顺序/字段/文本不符 |
+
+例如状态与内容矛盾时为 `code=answer_contract_invalid`、`validation_stage=answer_validation`、`detail_code=status_inconsistent`。报告将这些安全字段透传到 `ReportError.diagnostics.cause`，并再次按白名单净化；不直接复制自定义组件的任意诊断。错误码只能描述检测位置，不能证明生成语义错误的原因。2026-11-03 v3失败记录没有细分码或原始正文，无法追补具体根因；新诊断仅用于后续执行。
 
 客户端限制：问题最多 4000 字符；Top-K 为 1—20；上下文 JSON 不超过 64000 UTF-8 字节；答案不超过 128000 UTF-8 字节；最多 20 条结论、每条最多 20 条引用。超限明确失败，不静默截断。字节/字符上限不是模型 token 上限，生成适配层仍执行自己的限制。
 

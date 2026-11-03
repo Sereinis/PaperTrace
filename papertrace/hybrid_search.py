@@ -74,3 +74,14 @@ class HybridRetriever:
         keyword = self._keyword.search(query, top_k)
         vector = self._vector.search(query, top_k)
         return reciprocal_rank_fusion(keyword, vector, top_k=top_k, rrf_k=self.rrf_k)
+
+    def search_candidates(self, query: str, top_k: int = 5) -> list[dict]:
+        """保留两路各前K的去重并集，按RRF排序但不再次截断，最多返回2K条。"""
+        if type(top_k) is not int or top_k < 1:
+            raise HybridSearchError("top_k 必须是正整数")
+        keyword = self._keyword.search(query, top_k)
+        vector = self._vector.search(query, top_k)
+        if (not isinstance(keyword, list) or not isinstance(vector, list)
+                or len(keyword) > top_k or len(vector) > top_k):
+            raise HybridSearchError("底层候选必须为不超过top_k的列表")
+        return reciprocal_rank_fusion(keyword, vector, top_k=2 * top_k, rrf_k=self.rrf_k)
