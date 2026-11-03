@@ -150,6 +150,10 @@ def test_default_query_and_system_prompt_remain_unchanged(chunks):
     assert result["query"] == result["retrieval_query"]
     assert client.calls[0][0][0]["content"] == qa._SYSTEM_PROMPT
     assert result["prompt_version"] == qa.PROMPT_VERSION
+    assert "先把 question 拆成其中明确要求的事实点" in client.calls[0][0][0]["content"]
+    assert "漏掉任一所问数值" in client.calls[0][0][0]["content"]
+    assert "同一事实不要用多条同义背景重复回答" in client.calls[0][0][0]["content"]
+    assert "响应第一个字符必须是 `{`" in client.calls[0][0][0]["content"]
 
 
 def test_source_union_is_explicit_and_preserves_authoritative_evidence(chunks):
@@ -544,7 +548,7 @@ def test_segment_offsets_use_preassigned_occurrence(chunks):
     chunks[0]["text"] = "prefix " + chunks[0]["text"] + " The model uses attention."
     result = run(chunks)
     assert result["claims"][0]["citations"][0]["quote_start"] == 0
-    assert result["prompt_version"] == "evidence-qa-v2-segment-selection"
+    assert result["prompt_version"] == "evidence-qa-v4-coverage-json-contract"
     assert len(result["system_prompt_sha256"]) == 64
 
 
