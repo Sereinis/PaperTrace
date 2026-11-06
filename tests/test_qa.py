@@ -101,6 +101,74 @@ def test_answer_binds_original_page_chunk_and_exact_offsets(chunks):
     assert chunks == before
 
 
+@pytest.mark.parametrize("budget", [True, 0, 41, 2.5, "15"])
+def test_invalid_explicit_candidate_budget_precedes_factory(chunks, budget):
+    """非法显式预算在创建检索器和调用模型之前拒绝。"""
+    client = Generator()
+
+    def forbidden(selected):
+        """非法输入不允许进入检索。"""
+        pytest.fail("unexpected factory")
+
+    with pytest.raises(QAError):
+        answer_question("attention", "a", chunks, generator=client, retriever_factory=forbidden,
+                        preserve_source_candidates=True, max_candidates=budget)
+    assert not client.calls
+
+
+def test_explicit_budget_requires_union(chunks):
+    """显式预算必须由调用方启用并集且检索器确实提供该入口。"""
+    with pytest.raises(QAError):
+        run(chunks, max_candidates=15)
+    with pytest.raises(QAError):
+        run(chunks, max_candidates=15, preserve_source_candidates=True)
+
+
+def test_explicit_candidate_budget_accepts_expansion_and_rejects_overrun(chunks):
+    """预算可显式扩大2K，但检索器仍不能自行越过调用方上限。"""
+    corpus = [dict(chunks[0], chunk_id=str(i)) for i in range(15)]
+
+    class Union:
+        """固定返回15块，不根据调用方预算悄悄缩减。"""
+
+        def search_candidates(self, query, top_k):
+            """返回合法且连续的合成排名。"""
+            return [dict(c, score=1.0, rank=i + 1) for i, c in enumerate(corpus)]
+
+    client = Generator()
+    result = answer_question("attention", "a", corpus, generator=client,
+                             retriever_factory=lambda selected: Union(), top_k=5,
+                             preserve_source_candidates=True, max_candidates=15)
+    assert result["candidate_limit"] == len(result["evidence"]) == 15
+    for budget in (None, 14):
+        client = Generator()
+        with pytest.raises(QAError):
+            answer_question("attention", "a", corpus, generator=client,
+                            retriever_factory=lambda selected: Union(), top_k=5,
+                            preserve_source_candidates=True, max_candidates=budget)
+        assert not client.calls
+
+
+def test_expanded_candidates_still_obey_context_byte_limit(chunks):
+    """允许更多候选不会扩大64KB上下文字节上限，也不静默截断。"""
+    corpus = [dict(chunks[0], chunk_id=str(i), text="原文" * 2000) for i in range(15)]
+
+    class Union:
+        """返回会超过上下文字节上限的合法候选。"""
+
+        def search_candidates(self, query, top_k):
+            """仅模拟排名，不做外部调用。"""
+            return [dict(c, score=1.0, rank=i + 1) for i, c in enumerate(corpus)]
+
+    client = Generator()
+    with pytest.raises(QAError) as caught:
+        answer_question("attention", "a", corpus, generator=client,
+                        retriever_factory=lambda selected: Union(), top_k=5,
+                        preserve_source_candidates=True, max_candidates=15)
+    assert caught.value.code == "context_too_large"
+    assert not client.calls
+
+
 def test_document_filtering_precedes_retriever_creation(chunks):
     """只把指定论文传给工厂，禁止先全库检索再过滤。"""
     received = []

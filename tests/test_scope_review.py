@@ -171,7 +171,7 @@ def test_scope_remains_data_and_missing_count_bounded(qa):
 
 def test_results_policy_keeps_evaluation_conditions_but_excludes_training_resources():
     """结果复核规则保留评测条件，不把训练资源误当结果条件。"""
-    assert REVIEW_VERSION == "experiment-scope-review-v3-result-condition-policy"
+    assert REVIEW_VERSION == "experiment-scope-review-v4-field-scope"
     assert "checkpoint选择或平均" in _REVIEW_PROMPT
     assert "解码/搜索设置" in _REVIEW_PROMPT
     assert "不能仅因它不是指标或条件句没有重复模型名称而删除" in _REVIEW_PROMPT

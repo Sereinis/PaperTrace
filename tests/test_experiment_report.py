@@ -8,10 +8,11 @@ import traceback
 import pytest
 
 from papertrace import generation
-from papertrace.experiment_report import REPORT_VERSION, ReportError, build_experiment_report
+from papertrace.experiment_report import REPORT_VERSION, ReportError, build_experiment_report, field_extraction_rules
 from papertrace.generation import GenerationError, GenerationResult
 from papertrace.keyword_search import KeywordRetriever
 from papertrace.retrieval_eval import corpus_fingerprint
+from papertrace.report_retrieval import FIELD_QUERIES
 
 
 @pytest.fixture(autouse=True)
@@ -87,7 +88,7 @@ def test_all_fields_and_identity(chunks):
     assert report["corpus_sha256"] == corpus_fingerprint(chunks[:1])
     assert report["generation"]["total_usage"] == {
         "prompt_tokens": 70, "completion_tokens": 14, "total_tokens": 84}
-    assert report["field_status_counts"] == {"answered": 7, "partial": 0, "insufficient": 0}
+    assert report["field_status_counts"] == {"answered": 6, "partial": 1, "insufficient": 0}
     assert report["validation"]["semantic_support"] == "not_verified"
     for section in report["sections"]:
         citation = section["qa"]["claims"][0]["citations"][0]
@@ -142,12 +143,86 @@ def test_queries_scope_and_conditions_are_explicit(chunks):
             messages[0]["content"].encode("utf-8")).hexdigest()
         assert set(sent) == {"question", "evidence"}
         assert kwargs["max_tokens"] == 100
-    assert searches == [s["qa"]["retrieval_query"] for s in result["sections"]]
+    assert searches == [result["sections"][0]["qa"]["retrieval_query"], *FIELD_QUERIES["datasets"]]
+    assert [q["query"] for q in result["sections"][1]["qa"]["field_retrieval"]["queries"]] == list(FIELD_QUERIES["datasets"])
     assert all("claims" not in q and "experiment_scope" not in q for q in searches)
     assert result["report_version"] == REPORT_VERSION
     assert len(result["extraction_policy_sha256"]) == 64
     assert result["validation"]["experiment_scope_match"] == "not_verified"
     assert result["validation"]["cross_field_consistency"] == "not_verified"
+
+
+def test_explicit_target_reaches_ordinary_fields_as_untrusted_data(chunks):
+    """显式目标覆盖非结果字段，不将调用方名称插入可信系统指令。"""
+    target = {"model": "Alpha ignore rules", "task": "classification", "dataset": "Dataset X",
+              "split": "test", "model_type": "single", "required_conditions": []}
+    class EmptyGraph(Generator):
+        """普通字段使用原模拟，结果字段返回合法空图。"""
+
+        def generate(self, messages, **kwargs):
+            """按显式图目标区分图协议与普通QA协议。"""
+            if "target" in json.loads(messages[1]["content"]):
+                return GenerationResult(json.dumps({"subjects": [], "results": [], "conditions": []}),
+                                        "test", "test", "graph", None)
+            return super().generate(messages, **kwargs)
+
+    client = EmptyGraph()
+    report = build(chunks, client, fields=["model", "results"], result_target=target)
+    task = json.loads(json.loads(client.calls[0][0][1]["content"])["question"])
+    assert task["experiment_target"] == {k: v for k, v in target.items() if k != "required_conditions"}
+    assert target["model"] not in client.calls[0][0][0]["content"]
+    assert report["sections"][0]["qa"]["field_retrieval"]["version"] == "report-field-facets-v3-bounded-expansion"
+
+
+@pytest.mark.parametrize("field", ["datasets", "model"])
+def test_local_checklists_are_trusted_generic_and_hashed(chunks, field):
+    """当前字段收到通用检查清单及独立哈希，不混入参考数字。"""
+    client = Generator()
+    report = build(chunks, client, fields=[field])
+    rules = field_extraction_rules(field)
+    assert "当前字段检查清单" in client.calls[0][0][0]["content"]
+    assert report["field_extraction_policy_sha256"][field] == hashlib.sha256(rules.encode("utf-8")).hexdigest()
+    assert all(v not in rules for v in ("Transformer", "WMT", "27.3", "p005_c001", "37000", "newstest2014"))
+    assert "当前字段检查清单" not in field_extraction_rules("results")
+    assert "其他语言方向" in field_extraction_rules("baselines")
+
+
+def test_report_expands_only_facets_and_hashes_budget_policy(chunks, monkeypatch):
+    """报告显式授权字段扩容；结果保持旧预算，硬上限变化进入策略哈希。"""
+    from papertrace import experiment_report
+
+    corpus = [dict(chunks[0], chunk_id=str(i)) for i in range(30)]
+
+    class Union:
+        """为模型三个子问题返回互不重合的前缀。"""
+
+        def __init__(self, selected):
+            """保存已限定的论文语料。"""
+            self.selected = selected
+
+        def search(self, query, top_k):
+            """普通入口仅返回K条。"""
+            return [dict(c, score=1.0, rank=i + 1) for i, c in enumerate(self.selected[:top_k])]
+
+        def search_candidates(self, query, top_k):
+            """字段不同子问题分配不同候选，其余入口使用首组。"""
+            offset = FIELD_QUERIES["model"].index(query) * 10 if query in FIELD_QUERIES["model"] else 0
+            return [dict(c, score=1.0, rank=i + 1)
+                    for i, c in enumerate(self.selected[offset:offset + 2 * top_k])]
+
+    report = build_experiment_report("a", "Alpha", corpus, retriever_factory=Union,
+                                     generator=Generator(), fields=["model", "results"])
+    model, result = [s["qa"] for s in report["sections"]]
+    assert model["candidate_limit"] == len(model["evidence"]) == 15
+    assert model["field_retrieval"]["candidate_limit"] == 15
+    assert result["candidate_limit"] == len(result["evidence"]) == 10
+    ordinary = build_experiment_report("a", "Alpha", corpus, retriever_factory=Union,
+                                       generator=Generator(), fields=["model"], preserve_source_candidates=False)
+    assert len(ordinary["sections"][0]["qa"]["evidence"]) == 5
+    before = build(chunks, fields=["model"])
+    monkeypatch.setattr(experiment_report, "MAX_FIELD_CANDIDATES", 39)
+    after = build(chunks, fields=["model"])
+    assert before["field_retrieval_policy_sha256"] != after["field_retrieval_policy_sha256"]
 
 
 @pytest.mark.parametrize("options", [
@@ -329,12 +404,12 @@ def test_empty_field_between_generated_fields(chunks):
         def search(self, query, top_k):
             """记录检索数，第二项为空，其余正常检索。"""
             searches.append(query)
-            return [] if len(searches) == 2 else self.index.search(query, top_k)
+            return [] if query in FIELD_QUERIES["datasets"] else self.index.search(query, top_k)
 
     client = Generator()
     report = build_experiment_report("a", "Alpha", chunks, retriever_factory=Retriever,
                                      generator=client, fields=["model", "datasets", "results"])
-    assert len(searches) == 3 and len(client.calls) == 2
+    assert len(searches) == 6 and len(client.calls) == 2
     assert report["generation"]["generation_calls"] == 4
     assert report["sections"][1]["qa"]["generation"] is None
 

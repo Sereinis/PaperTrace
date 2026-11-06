@@ -235,6 +235,7 @@ def answer_question(
     top_k: int = 5, max_tokens: int = 2048,
     retrieval_query: str | None = None, generation_instructions: str | None = None,
     preserve_source_candidates: bool = False,
+    max_candidates: int | None = None,
 ) -> dict:
     """先限定论文再检索生成；可分开检索词与可信应用指令，失败不返回部分答案。"""
     if not _text(query, max_chars=4000) or not _text(document_id, max_chars=512):
@@ -245,6 +246,9 @@ def answer_question(
         raise QAError("应用生成指令必须是有界非空 UTF-8 文本")
     if type(preserve_source_candidates) is not bool:
         raise QAError("preserve_source_candidates必须是布尔值")
+    if max_candidates is not None and (type(max_candidates) is not int
+            or not 1 <= max_candidates <= 40 or not preserve_source_candidates):
+        raise QAError("显式候选预算须为1至40的整数且启用候选并集")
     search_query = query if retrieval_query is None else retrieval_query
     system_prompt = (_SYSTEM_PROMPT if generation_instructions is None else
                      _SYSTEM_PROMPT + "\n" + generation_instructions)
@@ -267,7 +271,10 @@ def answer_question(
     try:
         retriever = retriever_factory(copy.deepcopy(selected))
         use_union = preserve_source_candidates and callable(getattr(retriever, "search_candidates", None))
-        candidate_limit = 2 * top_k if use_union else top_k
+        if max_candidates is not None and not use_union:
+            raise QAError("显式候选预算需要检索器提供search_candidates")
+        candidate_limit = (max_candidates if max_candidates is not None else
+                           2 * top_k if use_union else top_k)
         results = (retriever.search_candidates(search_query, top_k) if use_union else
                    retriever.search(search_query, top_k))
         evidence = _validate_results(results, selected, candidate_limit)

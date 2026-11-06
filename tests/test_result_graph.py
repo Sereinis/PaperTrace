@@ -120,7 +120,7 @@ def test_wrong_subject_cannot_be_rescued_by_model_keep(chunks, target, graph):
     qa = report["sections"][0]["qa"]
     assert len(client.calls) == report["generation"]["generation_calls"] == 2
     assert report["generation"]["total_usage"]["total_tokens"] == 24
-    assert report["report_version"] == "experiment-report-v7-multikind-coverage"
+    assert report["report_version"] == "experiment-report-v10-bounded-field-budget-graph"
     assert qa["status"] == "partial" and len(qa["claims"]) == 1
     assert "73.6" in qa["claims"][0]["text"] and "9 checkpoints" not in qa["claims"][0]["text"]
     assert "Alpha large" not in qa["claims"][0]["text"]

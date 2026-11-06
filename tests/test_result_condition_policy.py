@@ -96,7 +96,7 @@ def test_result_and_conditions_across_table_and_body_remain_one_supported_claim(
     qa = report["sections"][0]["qa"]
     assert len(client.calls) == report["generation"]["generation_calls"] == 2
     assert report["generation"]["total_usage"]["total_tokens"] == 22
-    assert report["report_version"] == "experiment-report-v5-result-condition-policy"
+    assert report["report_version"] == "experiment-report-v10-bounded-field-budget"
     assert qa["prompt_version"] == PROMPT_VERSION == "evidence-qa-v4-coverage-json-contract"
     assert qa["status"] == "answered" and len(qa["claims"]) == 1
     citations = qa["claims"][0]["citations"]
@@ -120,7 +120,8 @@ def test_kept_score_with_missing_conditions_stays_partial(chunks, missing):
     client = ScriptedGenerator([claim("Alpha small测试准确率73.6。", "E1.S1", "E1.S2")], ["keep"],
                                status="partial", missing=[missing])
     qa = build(chunks, client)["sections"][0]["qa"]
-    assert qa["status"] == "partial" and qa["missing_info"] == [missing]
+    assert qa["status"] == "partial" and qa["missing_info_audit"]["original"] == [missing]
+    assert "未作为已确认缺口" in qa["missing_info"][0]
     assert qa["scope_review"]["kept_claim_indices"] == [0]
 
 
@@ -157,7 +158,7 @@ def test_only_conditions_without_score_preserves_score_gap(chunks):
     client = ScriptedGenerator([claim("small单模型平均最后3个checkpoint。", "E2.S1")], ["keep"],
                                status="partial", missing=["候选未给出可关联的目标测试成绩。"])
     qa = build(chunks, client)["sections"][0]["qa"]
-    assert qa["status"] == "partial" and "测试成绩" in qa["missing_info"][0]
+    assert qa["status"] == "partial" and "测试成绩" in qa["missing_info_audit"]["original"][0]
     assert len(client.calls) == 2
 
 
