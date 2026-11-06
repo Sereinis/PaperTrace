@@ -1,0 +1,79 @@
+package com.papertrace.internal;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+
+/** 供 Java 业务后端调用本机 PaperTrace Python 内部服务的最小客户端。 */
+public final class PaperTracePythonClient {
+    private final URI baseUri;
+    private final HttpClient client;
+    private final Duration timeout;
+
+    /** 仅接受本机 HTTP 地址，避免把问题转发到任意外部 URL。 */
+    public PaperTracePythonClient(String endpoint) {
+        this(endpoint, Duration.ofSeconds(10));
+    }
+
+    /** 创建带有限请求超时的本机客户端。 */
+    public PaperTracePythonClient(String endpoint, Duration timeout) {
+        if (endpoint == null || timeout == null || timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("endpoint 和 timeout 必须有效");
+        }
+        URI uri = URI.create(endpoint);
+        String host = uri.getHost();
+        if (!"http".equalsIgnoreCase(uri.getScheme())
+                || !("127.0.0.1".equalsIgnoreCase(host) || "localhost".equalsIgnoreCase(host))
+                || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null) {
+            throw new IllegalArgumentException("仅允许本机 HTTP endpoint");
+        }
+        this.baseUri = uri;
+        this.timeout = timeout;
+        this.client = HttpClient.newBuilder().connectTimeout(timeout).followRedirects(HttpClient.Redirect.NEVER).build();
+    }
+
+    /** 调用单问题接口并返回已校验 HTTP 状态的原始 JSON。 */
+    public String ask(String query, String documentId) throws IOException, InterruptedException {
+        if (query == null || query.isBlank() || documentId == null || documentId.isBlank()) {
+            throw new IllegalArgumentException("query 和 documentId 必须非空");
+        }
+        String body = "{\"query\":\"" + escape(query) + "\",\"document_id\":\""
+                + escape(documentId) + "\"}";
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("/v1/question"))
+                .timeout(timeout)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IOException("Python 内部服务返回 HTTP " + response.statusCode());
+        }
+        return response.body();
+    }
+
+    /** 转义 JSON 字符串中的控制字符和反斜杠。 */
+    private static String escape(String value) {
+        StringBuilder result = new StringBuilder(value.length() + 16);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\\' -> result.append("\\\\");
+                case '"' -> result.append("\\\"");
+                case '\r' -> result.append("\\r");
+                case '\n' -> result.append("\\n");
+                case '\t' -> result.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        result.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        result.append(c);
+                    }
+                }
+            }
+        }
+        return result.toString();
+    }
+}

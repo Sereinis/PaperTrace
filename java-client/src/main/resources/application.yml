@@ -1,0 +1,9 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+spring:
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+papertrace:
+  internal-service-url: ${PAPERTRACE_INTERNAL_URL:http://127.0.0.1:8765}

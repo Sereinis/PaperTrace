@@ -17,6 +17,8 @@ v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感
 
 ## 环境要求
 
+Java 业务后端已提供本机 `POST /api/questions`，通过 REST 调用 Python 内部服务；已完成模拟生成器的跨进程联调，不代表报告内容验收。构建与运行见 [Java 后端](java-client/README.md)，边界见 [内部服务说明](docs/internal-service.md)。
+
 - Python 3.10 或更高版本；
 - 首版只支持可复制文本、结构较清晰的英文 PDF。
 
@@ -128,7 +130,7 @@ python -m papertrace.qa_cli `
 
 ## 单实验字段化证据报告
 
-验收方案见[报告验收与服务接入门槛](docs/report-acceptance.md)。内部接口联调、完整报告内容验收和线上可用性分别判定；当前内容尚未验收，Spring Boot/Python REST集成尚未实现。
+验收方案见[报告验收与服务接入门槛](docs/report-acceptance.md)。内部接口联调、完整报告内容验收和线上可用性分别判定；当前内容尚未验收，Spring Boot/Python REST已完成单问题模拟联调，报告接口尚未接入。
 
 当前报告引擎增加保守字段覆盖诊断：候选中存在训练/指标类别而最终结论未覆盖，或对照结论出现明确其它语言方向时，只将过于乐观的`answered`降为`partial`并记录原因；不生成或改写事实，不把该诊断当语义验证。对v10旧报告的零调用回放将训练栏从answered降为partial，指标栏保留原partial；原报告文件未修改。
 
