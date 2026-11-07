@@ -6,6 +6,8 @@ import com.papertrace.business.api.QuestionResponse;
 import com.papertrace.business.api.QuestionResponse.*;
 import com.papertrace.internal.PaperTracePythonClient;
 import java.io.IOException;
+import java.net.http.HttpTimeoutException;
+import com.papertrace.internal.PaperTracePythonClient.PythonResponseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -81,13 +83,61 @@ public class QuestionApplicationService {
             }
             return new QuestionResponse(text(envelope, "service_version"),
                     new Answer(query, documentId, status, List.copyOf(claims), List.copyOf(missing),
-                            new Validation(quoteValidation, semantic, basis)));
+                            new Validation(quoteValidation, semantic, basis), usage(result.path("generation").path("usage"))));
+        } catch (PythonResponseException error) {
+            throw classify(error);
+        } catch (HttpTimeoutException error) {
+            throw new QuestionServiceException("internal_timeout", 504, null, error);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new QuestionServiceException("问答内部服务请求已中断", error);
         } catch (IOException | RuntimeException error) {
             throw new QuestionServiceException("问答内部服务不可用", error);
         }
+    }
+
+    /** 只接受固定版本与HTTP状态匹配的错误码，不使用上游message。 */
+    private QuestionServiceException classify(PythonResponseException error) {
+        try {
+            JsonNode envelope = objectMapper.readTree(error.body());
+            JsonNode detail = envelope.path("error");
+            if (!envelope.path("ok").isBoolean() || envelope.path("ok").booleanValue()
+                    || !text(detail, "service_version").equals("papertrace-internal-question-v1")) {
+                throw new IllegalStateException();
+            }
+            String code = text(detail, "code");
+            int expected = switch (code) {
+                case "document_not_found" -> 404;
+                case "invalid_input", "invalid_json", "invalid_content_length" -> 400;
+                case "context_too_large" -> 422;
+                case "service_busy" -> 503;
+                case "retrieval_failed", "generation_failed", "citation_invalid",
+                        "answer_contract_invalid", "invalid_generation_result" -> 502;
+                default -> throw new IllegalStateException();
+            };
+            if (error.status() != expected) { throw new IllegalStateException(); }
+            return new QuestionServiceException(code, expected, usage(detail.path("usage")), error);
+        } catch (IOException | RuntimeException invalid) {
+            return new QuestionServiceException("问答内部服务不可用", error);
+        }
+    }
+
+    /** 校验生成用量的非负整数及求和关系，未知保持为空。 */
+    private static Usage usage(JsonNode node) {
+        if (node.isMissingNode() || node.isNull()) { return null; }
+        String[] names = {"prompt_tokens", "completion_tokens", "total_tokens"};
+        long[] values = new long[3];
+        for (int i = 0; i < names.length; i++) {
+            JsonNode value = node.path(names[i]);
+            if (!value.isIntegralNumber() || !value.canConvertToLong() || value.longValue() < 0) {
+                throw new IllegalStateException("内部用量结构无效");
+            }
+            values[i] = value.longValue();
+        }
+        if (values[0] > Long.MAX_VALUE - values[1] || values[0] + values[1] != values[2]) {
+            throw new IllegalStateException("内部用量求和无效");
+        }
+        return new Usage(values[0], values[1], values[2]);
     }
 
     /** 提取必需的非空字符串，禁止 JSON 类型强制转换。 */
@@ -119,9 +169,32 @@ public class QuestionApplicationService {
 
     /** 将内部调用失败转换为业务层可处理异常。 */
     public static final class QuestionServiceException extends RuntimeException {
+        private final String code;
+        private final int httpStatus;
+        private final Usage usage;
         /** 创建不携带原始问题或模型正文的业务异常。 */
         public QuestionServiceException(String message, Throwable cause) {
             super(message, cause);
+            this.code = "internal_service_unavailable";
+            this.httpStatus = 502;
+            this.usage = null;
         }
+
+        /** 保存经白名单检查的分类、HTTP状态与合法用量。 */
+        public QuestionServiceException(String code, int httpStatus, Usage usage, Throwable cause) {
+            super("问答请求未完成；不会自动重试", cause);
+            this.code = code;
+            this.httpStatus = httpStatus;
+            this.usage = usage;
+        }
+
+        /** 获取安全分类。 */
+        public String code() { return code; }
+
+        /** 获取业务HTTP状态。 */
+        public int httpStatus() { return httpStatus; }
+
+        /** 获取已验证用量或未知值。 */
+        public Usage usage() { return usage; }
     }
 }

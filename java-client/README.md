@@ -31,4 +31,8 @@ java -jar target/papertrace-business-0.1.0-SNAPSHOT.jar
 
 Java 默认监听 `127.0.0.1:8080`。请求严格接收 `query`（最长4000个Java字符单位）与 `documentId`（最长256个字符单位），拒绝空白及多余字段。成功响应使用 camelCase，如 `result.claims[].citations[].chunkId`、`result.missingInfo`、`result.validation.semanticSupport`。引用偏移保留 Python Unicode 码点口径，不是 Java UTF-16 下标。`semanticSupport` 始终为 `not_verified`，`answered` 仍为模型自评。
 
-输入错误返回400，内部调用失败或协议不合规返回脱敏502，不重试、不回显上游正文。当前内部请求超时10秒，适用于本地模拟联调；真实模型长耗时任务与错误码细分尚未接入。Python 服务须由启动方另行注入语料、检索器和生成器；Java 不自动启动 Python 或加载模型密钥。
+输入错误返回400；未知论文404、忙503、Java内部请求超时504，检索/生成/引用契约问题分别以白名单错误码返回502，上游上下文超限422。未知错误回退脱敏502，不重试、不回显上游正文。成功 `result.usage` 和错误外层 `usage` 返回合法生成token统计，未知为null，不估算账单。
+
+内部连接超时3秒，请求默认120秒，可用 `PAPERTRACE_INTERNAL_TIMEOUT_SECONDS` 配置1—300秒。超时不证明Python或模型任务已取消，已发送请求可能计费，不能自动重试。当前仍为同步问答，异步任务与公网限流未实现。
+
+Python服务可用 `python -m papertrace.service_cli` 独立加载论文、向量快照和查询缓存，详见 [真实服务启动与错误分类](../docs/internal-service.md)。Java不启动Python，不加载模型密钥。已通过一次真实开发题端到端冒烟：1次DeepSeek、0新向量、3071 tokens，引用和结构验证不等于总体语义验收。

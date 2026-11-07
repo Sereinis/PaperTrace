@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.papertrace.business.service.QuestionApplicationService;
 import com.papertrace.internal.PaperTracePythonClient;
 import org.junit.jupiter.api.Test;
+import java.net.http.HttpTimeoutException;
 
 /** 验证应用编排层的线程中断边界。 */
 class QuestionApplicationServiceTest {
@@ -25,5 +26,22 @@ class QuestionApplicationServiceTest {
         } finally {
             Thread.interrupted();
         }
+    }
+
+    /** 超时返回504且不自动重试，不能假定上游未计费。 */
+    @Test
+    void classifiesTimeoutWithoutRetry() throws Exception {
+        var client = mock(PaperTracePythonClient.class);
+        when(client.ask("q", "a")).thenThrow(new HttpTimeoutException("secret"));
+        var service = new QuestionApplicationService(client, new ObjectMapper());
+        try {
+            service.ask("q", "a");
+            fail("must reject timeout");
+        } catch (QuestionApplicationService.QuestionServiceException error) {
+            assertThat(error.httpStatus()).isEqualTo(504);
+            assertThat(error.code()).isEqualTo("internal_timeout");
+            assertThat(error.usage()).isNull();
+        }
+        verify(client, times(1)).ask("q", "a");
     }
 }

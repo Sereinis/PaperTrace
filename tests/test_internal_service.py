@@ -10,6 +10,7 @@ import pytest
 from papertrace.generation import GenerationResult
 from papertrace.internal_service import QuestionService, ServiceError, make_handler, serve
 from papertrace.keyword_search import KeywordRetriever
+from papertrace.qa import QAError
 
 
 class FakeGenerator:
@@ -105,3 +106,59 @@ def test_public_bind_is_rejected():
     service = QuestionService([], KeywordRetriever, FakeGenerator())
     with pytest.raises(ServiceError):
         serve(service, host="0.0.0.0")
+
+
+def test_missing_document_is_safe_404(server):
+    """未知论文返回可区分的404，不使用上游正文。"""
+    status, body = request(server, "POST", "/v1/question", {"query": "x", "document_id": "missing"})
+    assert status == 404 and body["error"]["code"] == "document_not_found"
+
+
+def test_duplicate_json_keys_rejected(server):
+    """重复请求字段必须在执行问答前拒绝。"""
+    req = Request(server + "/v1/question", data=b'{"query":"a","query":"b","document_id":"a"}',
+                  headers={"Content-Type": "application/json"}, method="POST")
+    with pytest.raises(HTTPError) as error:
+        urlopen(req, timeout=3)
+    assert error.value.code == 400
+
+
+@pytest.mark.parametrize("code,status", [("retrieval_failed", 502), ("generation_failed", 502),
+    ("citation_invalid", 502), ("answer_contract_invalid", 502), ("context_too_large", 422)])
+def test_safe_qa_failure_categories_and_usage(code, status):
+    """失败保留合法用量和分类，不回显异常正文，也不重试。"""
+    usage = {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
+    service = QuestionService([], KeywordRetriever, FakeGenerator())
+    calls = []
+
+    def fail(*args):
+        """只抛出合成安全诊断以验证传输外壳。"""
+        calls.append(1)
+        raise QAError("secret raw error", code=code, usage=usage)
+
+    service.answer = fail
+    httpd = serve(service, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        actual, body = request(f"http://127.0.0.1:{httpd.server_port}", "POST", "/v1/question",
+                               {"query": "x", "document_id": "a"})
+        assert actual == status and body["error"]["code"] == code
+        assert body["error"]["usage"] == usage
+        assert "secret" not in json.dumps(body) and len(calls) == 1
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)
+
+
+def test_inflight_request_is_not_queued():
+    """服务繁忙时直接拒绝新任务，避免客户端超时后仍排队计费。"""
+    service = QuestionService([{"chunk_id": "a1", "document_id": "a", "page_number": 1,
+                               "text": "attention"}], KeywordRetriever, FakeGenerator())
+    service._lock.acquire()
+    try:
+        with pytest.raises(ServiceError, match="service_busy"):
+            service.answer("attention", "a")
+    finally:
+        service._lock.release()

@@ -12,7 +12,8 @@ public class InternalServiceConfig {
     /** 使用受配置约束的内部地址创建客户端。 */
     @Bean
     public PaperTracePythonClient paperTracePythonClient(
-            @Value("${papertrace.internal-service-url:http://127.0.0.1:8765}") String endpoint) {
-        return new PaperTracePythonClient(endpoint, Duration.ofSeconds(10));
+            @Value("${papertrace.internal-service-url:http://127.0.0.1:8765}") String endpoint,
+            @Value("${papertrace.internal-timeout-seconds:120}") int timeoutSeconds) {
+        return new PaperTracePythonClient(endpoint, Duration.ofSeconds(timeoutSeconds));
     }
 }

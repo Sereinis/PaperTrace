@@ -21,7 +21,7 @@ public class BusinessExceptionHandler {
     /** 处理 Python 内部服务不可用或响应结构错误。 */
     @ExceptionHandler(QuestionServiceException.class)
     public ResponseEntity<BusinessErrorResponse> internalService(QuestionServiceException error) {
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(new BusinessErrorResponse("internal_service_unavailable", "问答服务暂不可用"));
+        return ResponseEntity.status(error.httpStatus())
+                .body(new BusinessErrorResponse(error.code(), "问答请求未完成；不会自动重试，已发送请求可能计费", error.usage()));
     }
 }

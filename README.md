@@ -17,7 +17,7 @@ v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感
 
 ## 环境要求
 
-Java 业务后端已提供本机 `POST /api/questions`，通过 REST 调用 Python 内部服务；已完成模拟生成器的跨进程联调，不代表报告内容验收。构建与运行见 [Java 后端](java-client/README.md)，边界见 [内部服务说明](docs/internal-service.md)。
+Java业务后端提供本机 `POST /api/questions`，通过REST调用 `python -m papertrace.service_cli` 加载的Python论文问答服务，复用标准分块向量与查询缓存，支持错误分类和用量投影。已完成模拟联调及一次真实开发题端到端冒烟（1次生成、0次新向量）；不代表报告内容验收。构建见 [Java后端](java-client/README.md)，启动、费用和超时边界见 [内部服务说明](docs/internal-service.md)。
 
 - Python 3.10 或更高版本；
 - 首版只支持可复制文本、结构较清晰的英文 PDF。

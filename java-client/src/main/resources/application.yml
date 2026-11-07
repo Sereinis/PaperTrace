@@ -7,3 +7,4 @@ spring:
       fail-on-unknown-properties: true
 papertrace:
   internal-service-url: ${PAPERTRACE_INTERNAL_URL:http://127.0.0.1:8765}
+  internal-timeout-seconds: ${PAPERTRACE_INTERNAL_TIMEOUT_SECONDS:120}

@@ -6,7 +6,10 @@ import java.util.List;
 public record QuestionResponse(String serviceVersion, Answer result) {
     /** 向业务调用方公开答案和校验状态，不透传候选全文或生成器内部元数据。 */
     public record Answer(String query, String documentId, String status, List<Claim> claims,
-                         List<String> missingInfo, Validation validation) { }
+                         List<String> missingInfo, Validation validation, Usage usage) { }
+
+    /** 服务端报告的生成token用量，不代表账单；未知时为空。 */
+    public record Usage(long promptTokens, long completionTokens, long totalTokens) { }
 
     /** 表示一个结论及其程序定位后的引用。 */
     public record Claim(String text, List<Citation> citations) { }
