@@ -51,6 +51,15 @@ class QuestionService:
         self.top_k = top_k
         self.max_tokens = max_tokens
 
+    def documents(self) -> list[dict]:
+        """只列出已加载论文身份与分块数量，不返回原文、路径或模型配置。"""
+        counts = {}
+        for chunk in self.chunks:
+            identity = chunk["document_id"]
+            counts[identity] = counts.get(identity, 0) + 1
+        return [{"document_id": identity, "chunk_count": counts[identity]}
+                for identity in sorted(counts)]
+
     def answer(self, query: str, document_id: str) -> dict:
         """执行一条论文范围内问答并返回既有安全结果结构。"""
         if not isinstance(query, str) or not query.strip():
@@ -131,6 +140,9 @@ def make_handler(service: QuestionService):
             """处理健康检查，其余路径返回固定 404。"""
             if self.path == "/healthz":
                 self._send(200, _json_bytes({"ok": True, "service_version": SERVICE_VERSION}))
+            elif self.path == "/v1/documents":
+                self._send(200, _json_bytes({"ok": True, "service_version": SERVICE_VERSION,
+                                            "documents": service.documents()}))
             else:
                 self._send(*_error("not_found", "路径不存在", 404))
 

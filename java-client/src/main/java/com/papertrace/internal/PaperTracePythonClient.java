@@ -56,6 +56,17 @@ public final class PaperTracePythonClient {
         return response.body();
     }
 
+    /** 读取本机论文目录，不触发检索或生成模型请求。 */
+    public String documents() throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("/v1/documents"))
+                .timeout(timeout).GET().build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new PythonResponseException(response.statusCode(), response.body());
+        }
+        return response.body();
+    }
+
     /** 保存待业务层白名单解析的响应，不将正文拼入异常消息。 */
     public static final class PythonResponseException extends IOException {
         private final int status;

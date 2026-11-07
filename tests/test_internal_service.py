@@ -60,6 +60,48 @@ def test_healthz(server):
     assert body == {"ok": True, "service_version": "papertrace-internal-question-v1"}
 
 
+def test_documents_lists_loaded_metadata_only(server):
+    """目录只暴露稳定论文身份和分块数，不返回候选原文或来源路径。"""
+    status, body = request(server, "GET", "/v1/documents")
+    assert status == 200
+    assert body == {"ok": True, "service_version": "papertrace-internal-question-v1",
+                    "documents": [{"document_id": "a", "chunk_count": 1}]}
+
+
+def test_documents_sorted_counts_and_fresh_projection():
+    """目录计数按论文聚合、排序并隔离调用者对结果的修改。"""
+    chunks = [{"chunk_id": str(i), "document_id": identity, "page_number": 1, "text": "attention"}
+              for i, identity in enumerate(["z", "a", "z"])]
+    service = QuestionService(chunks, KeywordRetriever, FakeGenerator())
+    expected = [{"document_id": "a", "chunk_count": 1}, {"document_id": "z", "chunk_count": 2}]
+    assert service.documents() == expected
+    service.documents()[0]["document_id"] = "changed"
+    assert service.documents() == expected
+    assert QuestionService([], KeywordRetriever, FakeGenerator()).documents() == []
+
+
+def test_documents_does_not_retrieve_or_generate():
+    """问答忙时仍能读取目录，不进入检索器或生成器。"""
+    def blocked(*args, **kwargs):
+        """任何检索调用都会使测试失败。"""
+        pytest.fail("unexpected retrieval")
+
+    class BlockedGenerator:
+        """不允许目录请求创建答案。"""
+
+        def generate(self, *args, **kwargs):
+            """任何生成调用都会使测试失败。"""
+            pytest.fail("unexpected generation")
+
+    service = QuestionService([{"chunk_id": "a", "document_id": "paper", "page_number": 1,
+                               "text": "attention"}], blocked, BlockedGenerator())
+    service._lock.acquire()
+    try:
+        assert service.documents() == [{"document_id": "paper", "chunk_count": 1}]
+    finally:
+        service._lock.release()
+
+
 def test_question_returns_bound_citation(server):
     """单问题接口返回既有问答结果并绑定 chunk 身份。"""
     status, body = request(server, "POST", "/v1/question",

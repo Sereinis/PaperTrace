@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>PaperTrace · 论文证据问答</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">PaperTrace<span>论文证据问答</span></a><span class="local">本地工作台</span></header>
+  <main>
+    <section class="intro"><p class="eyebrow">READ · ASK · TRACE</p><h1>让回答有据可查。</h1><p>在已加载的论文中提问，沿着原文引用回到证据。</p></section>
+    <div class="workspace">
+      <section class="panel compose" aria-labelledby="ask-title">
+        <h2 id="ask-title">提出问题</h2>
+        <form id="question-form">
+          <label for="document">选择论文</label>
+          <div class="document-row"><select id="document" required disabled><option value="">正在加载论文…</option></select><button id="refresh" type="button" class="secondary">刷新</button></div>
+          <p id="catalog-state" class="hint" role="status">只显示服务当前加载的论文，暂不支持上传。</p>
+          <label for="query">你的问题</label>
+          <textarea id="query" rows="6" maxlength="4000" required placeholder="例如：基础模型使用了什么硬件，训练了多少步？"></textarea>
+          <p class="hint">当前检索主要验证于英文问题；中文问题的召回质量尚未验证。</p>
+          <button id="submit" type="submit" disabled>查找证据并回答 <span aria-hidden="true">↗</span></button>
+        </form>
+        <p class="boundary">每次提问可能调用模型并计费。失败不自动重试，等待超时不代表上游已取消。</p>
+      </section>
+      <section class="panel answer" aria-labelledby="answer-title" aria-busy="false">
+        <div class="answer-heading"><h2 id="answer-title">答案与证据</h2><span id="badge" class="badge">待提问</span></div>
+        <p id="request-state" role="status" aria-live="polite">选择一篇论文，开始第一个问题。</p>
+        <div id="result"></div>
+        <p id="usage" class="hint"></p>
+      </section>
+    </div>
+    <footer>原文定位校验 ≠ 语义支持验证。回答充分性为模型自评，请结合引用核对。</footer>
+  </main>
+</body>
+</html>
