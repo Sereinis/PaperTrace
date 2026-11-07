@@ -147,3 +147,29 @@ def test_main_startup_failure_is_sanitized(tmp_path, capsys):
     """启动失败只返回固定消息，不展示路径及原异常。"""
     assert service_cli.main(["--chunks", str(tmp_path / "private-path.json"), "--retrieval", "keyword"]) == 1
     assert "private-path" not in capsys.readouterr().out
+
+
+def test_library_only_startup_restores_without_models(tmp_path, monkeypatch):
+    """空库无需静态语料或密钥，离线查询选项传入论文库。"""
+    captured = []
+    class Server:
+        """只验证启动参数，不实际监听端口。"""
+        def serve_forever(self):
+            """模拟立即结束的服务循环。"""
+            return None
+        def server_close(self):
+            """无套接字需要清理。"""
+            return None
+    def fake_serve(service, host, port):
+        """保存服务并阻断所有真实客户端。"""
+        captured.append(service)
+        return Server()
+    def blocked(*args, **kwargs):
+        """启动时不得构造真实模型客户端。"""
+        pytest.fail("unexpected model construction")
+    monkeypatch.setattr(service_cli, "serve", fake_serve)
+    monkeypatch.setattr(service_cli, "DeepSeekGenerator", blocked)
+    monkeypatch.setattr(service_cli, "SiliconFlowEmbedder", blocked)
+    assert service_cli.main(["--library-dir", str(tmp_path), "--offline-query-cache"]) == 0
+    assert captured[0].documents() == []
+    assert captured[0].library.offline_query_cache is True

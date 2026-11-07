@@ -109,7 +109,8 @@ def create_service(chunk_paths, *, vectors=None, retrieval="hybrid", query_cache
 def main(argv=None):
     """解析启动参数并运行本机服务，退出时关闭套接字，不记录配置正文。"""
     parser = argparse.ArgumentParser(description="启动PaperTrace本机问答服务")
-    parser.add_argument("--chunks", type=Path, nargs="+", required=True)
+    parser.add_argument("--chunks", type=Path, nargs="+")
+    parser.add_argument("--library-dir", type=Path)
     parser.add_argument("--vectors", type=Path)
     parser.add_argument("--query-cache", type=Path)
     parser.add_argument("--retrieval", choices=["keyword", "vector", "hybrid"], default="hybrid")
@@ -124,11 +125,25 @@ def main(argv=None):
     args = parser.parse_args(argv)
     server = None
     try:
-        service = create_service(args.chunks, vectors=args.vectors, retrieval=args.retrieval,
-                                 query_cache=args.query_cache, model=args.model, top_k=args.top_k,
-                                 max_tokens=args.max_tokens, generation_timeout=args.generation_timeout,
-                                 embedding_timeout=args.embedding_timeout,
-                                 offline_query_cache=args.offline_query_cache)
+        if args.chunks:
+            service = create_service(args.chunks, vectors=args.vectors, retrieval=args.retrieval,
+                                     query_cache=args.query_cache, model=args.model, top_k=args.top_k,
+                                     max_tokens=args.max_tokens, generation_timeout=args.generation_timeout,
+                                     embedding_timeout=args.embedding_timeout,
+                                     offline_query_cache=args.offline_query_cache)
+        elif args.library_dir is not None and args.vectors is None and args.query_cache is None:
+            if not 0 < args.generation_timeout <= 60 or not 0 < args.embedding_timeout <= 60:
+                raise ValueError("组件超时无效")
+            service = QuestionService([], KeywordRetriever, LazyGenerator(args.model, args.generation_timeout),
+                                      top_k=args.top_k, max_tokens=args.max_tokens)
+        else:
+            raise ValueError("必须提供语料或本地论文库")
+        if args.library_dir is not None:
+            from papertrace.library import PaperLibrary
+            service.library = PaperLibrary(args.library_dir, model=args.model, top_k=args.top_k,
+                                          max_tokens=args.max_tokens, generation_timeout=args.generation_timeout,
+                                          embedding_timeout=args.embedding_timeout,
+                                          offline_query_cache=args.offline_query_cache)
         server = serve(service, args.host, args.port)
         print("PaperTrace内部服务已就绪（仅本机；不自动重试）", flush=True)
         server.serve_forever()

@@ -2,9 +2,14 @@ server:
   address: 127.0.0.1
   port: 8080
 spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   jackson:
     deserialization:
       fail-on-unknown-properties: true
 papertrace:
+  library-dir: ${PAPERTRACE_LIBRARY_DIR:}
   internal-service-url: ${PAPERTRACE_INTERNAL_URL:http://127.0.0.1:8765}
   internal-timeout-seconds: ${PAPERTRACE_INTERNAL_TIMEOUT_SECONDS:120}

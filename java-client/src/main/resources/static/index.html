@@ -19,7 +19,13 @@
         <form id="question-form">
           <label for="document">选择论文</label>
           <div class="document-row"><select id="document" required disabled><option value="">正在加载论文…</option></select><button id="refresh" type="button" class="secondary">刷新</button></div>
-          <p id="catalog-state" class="hint" role="status">只显示服务当前加载的论文，暂不支持上传。</p>
+          <p id="catalog-state" class="hint" role="status">可上传 PDF；处理完成后即可提问。</p>
+          <div class="upload-row">
+            <label for="pdf-file">上传自己的 PDF</label>
+            <input id="pdf-file" type="file" accept="application/pdf,.pdf">
+            <button id="upload" type="button" class="secondary">上传并处理</button>
+          </div>
+          <p id="upload-state" class="hint" role="status" aria-live="polite"></p>
           <label for="query">你的问题</label>
           <textarea id="query" rows="6" maxlength="4000" required placeholder="例如：基础模型使用了什么硬件，训练了多少步？"></textarea>
           <p class="hint">当前检索主要验证于英文问题；中文问题的召回质量尚未验证。</p>

@@ -67,6 +67,19 @@ public final class PaperTracePythonClient {
         return response.body();
     }
 
+    /** 仅提交哈希身份，不允许传入任意路径，后台导入不自动重试。 */
+    public String importDocument(String documentId) throws IOException, InterruptedException {
+        if (documentId == null || !documentId.matches("pdf_[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("导入身份无效");
+        }
+        var request = HttpRequest.newBuilder(baseUri.resolve("/v1/import"))
+                .timeout(Duration.ofSeconds(900)).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"document_id\":\"" + documentId + "\"}")).build();
+        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) throw new PythonResponseException(response.statusCode(), response.body());
+        return response.body();
+    }
+
     /** 保存待业务层白名单解析的响应，不将正文拼入异常消息。 */
     public static final class PythonResponseException extends IOException {
         private final int status;

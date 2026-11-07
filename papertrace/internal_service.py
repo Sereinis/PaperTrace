@@ -50,6 +50,7 @@ class QuestionService:
         self.generator = generator
         self.top_k = top_k
         self.max_tokens = max_tokens
+        self.library = None
 
     def documents(self) -> list[dict]:
         """只列出已加载论文身份与分块数量，不返回原文、路径或模型配置。"""
@@ -57,8 +58,10 @@ class QuestionService:
         for chunk in self.chunks:
             identity = chunk["document_id"]
             counts[identity] = counts.get(identity, 0) + 1
-        return [{"document_id": identity, "chunk_count": counts[identity]}
-                for identity in sorted(counts)]
+        if self.library is not None:
+            for row in self.library.documents():
+                counts[row["document_id"]] = row["chunk_count"]
+        return [{"document_id": identity, "chunk_count": counts[identity]} for identity in sorted(counts)]
 
     def answer(self, query: str, document_id: str) -> dict:
         """执行一条论文范围内问答并返回既有安全结果结构。"""
@@ -66,11 +69,14 @@ class QuestionService:
             raise ServiceError("query 必须是非空字符串")
         if not isinstance(document_id, str) or not document_id.strip():
             raise ServiceError("document_id 必须是非空字符串")
-        if document_id not in self.document_ids:
+        imported = self.library.service(document_id) if self.library is not None else None
+        if document_id not in self.document_ids and imported is None:
             raise ServiceError("document_not_found")
         if not self._lock.acquire(blocking=False):
             raise ServiceError("service_busy")
         try:
+            if imported is not None:
+                return imported.answer(query, document_id)
             return answer_question(
                 query, document_id, self.chunks,
                 retriever_factory=self.retriever_factory, generator=self.generator,
@@ -147,8 +153,9 @@ def make_handler(service: QuestionService):
                 self._send(*_error("not_found", "路径不存在", 404))
 
         def do_POST(self):
-            """解析单问题 JSON 请求并调用注入的问答服务。"""
-            if self.path != "/v1/question":
+            """解析问答或导入JSON请求，拒绝客户端路径及额外字段。"""
+            importing = self.path == "/v1/import"
+            if self.path not in {"/v1/question", "/v1/import"}:
                 self._send(*_error("not_found", "路径不存在", 404))
                 return
             if self.headers.get_content_type() != "application/json" or self.headers.get("Transfer-Encoding"):
@@ -179,17 +186,31 @@ def make_handler(service: QuestionService):
                     raise ValueError
                 payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_strict_object,
                                      parse_constant=_reject_constant)
-                if (not isinstance(payload, dict) or set(payload) != {"query", "document_id"}
-                        or not isinstance(payload["query"], str)
+                required = {"document_id"} if importing else {"query", "document_id"}
+                if (not isinstance(payload, dict) or set(payload) != required
+                        or (not importing and not isinstance(payload["query"], str))
                         or not isinstance(payload["document_id"], str)):
                     raise ValueError
             except (ValueError, UnicodeError, json.JSONDecodeError, RecursionError):
-                self._send(*_error("invalid_json", "请求必须是包含 query 和 document_id 的 JSON 对象", 400))
+                self._send(*_error("invalid_json", "请求字段或JSON格式无效", 400))
                 return
             except OSError:
                 self._send(*_error("request_timeout", "读取请求超时或中断", 408))
                 return
             try:
+                if importing:
+                    from papertrace.library import ImportFailure
+                    if service.library is None:
+                        self._send(*_error("uploads_disabled", "未配置本地论文库", 503))
+                        return
+                    try:
+                        imported = service.library.import_document(payload["document_id"])
+                    except ImportFailure as error:
+                        self._send(*_error(error.code, "论文处理未完成，不会自动重试", 422))
+                        return
+                    self._send(200, _json_bytes({"ok": True, "service_version": SERVICE_VERSION,
+                                                "document": imported}))
+                    return
                 result = service.answer(payload["query"], payload["document_id"])
                 body = _json_bytes({"ok": True, "service_version": SERVICE_VERSION, "result": result})
             except QAError as error:

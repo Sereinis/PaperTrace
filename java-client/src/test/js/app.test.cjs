@@ -10,7 +10,7 @@ class Element {
   /** 保存纯文本、子节点及事件，不实现HTML解释能力。 */
   constructor(tag = 'div', text = '') {
     this.tag = tag; this.textContent = text; this.children = []; this.dataset = {};
-    this.listeners = {}; this.value = ''; this.disabled = false;
+    this.listeners = {}; this.value = ''; this.disabled = false; this.files = [];
   }
   /** 收集子节点。 */
   append(...items) { this.children.push(...items); }
@@ -28,7 +28,7 @@ class Element {
 
 /** 启动独立脚本沙箱，所有网络响应均为测试对象。 */
 async function boot(options = {}) {
-  const ids = new Map(), calls = [];
+  const ids = new Map(), calls = [], allCalls = [];
   const element = id => { if (!ids.has(id)) ids.set(id, new Element()); return ids.get(id); };
   const answerPanel = new Element(), body = new Element();
   const documents = options.documents ?? [{documentId: 'a', chunkCount: 1}];
@@ -39,8 +39,16 @@ async function boot(options = {}) {
       /** 构造安全文本选项。 */
       constructor(text, value) { super('option', text); this.value = value; }
     },
+    FormData: class { append(key, value) { this[key] = value; } },
+    setTimeout: callback => setImmediate(callback),
     fetch: async (url, request) => {
+      allCalls.push({url, request});
+      if (url === '/api/uploads' && request.method !== 'POST') {
+        if (options.uploadStateError) throw new Error('secret');
+        return {ok: true, json: async () => options.uploads ? options.uploads() : []};
+      }
       calls.push({url, request});
+      if (url === '/api/uploads') return options.uploadResponse();
       if (url === '/api/documents') {
         if (options.catalogError) throw new Error();
         return {ok: true, json: async () => ({documents})};
@@ -53,7 +61,8 @@ async function boot(options = {}) {
   await new Promise(resolve => setImmediate(resolve));
   /** 触发一次表单提交。 */
   const send = () => { element('query').value = 'q'; return element('question-form').listeners.submit({preventDefault() {}}); };
-  return {element, calls, send, body, answerPanel};
+  return {element, calls, allCalls, send, body, answerPanel,
+    upload: () => element('upload').listeners.click()};
 }
 
 /** 构造与Java投影一致的回答，允许逐字段覆盖。 */
@@ -151,4 +160,63 @@ test('回答充分性依据不能丢失或冒充已验证', async () => {
     {semanticSupport: 'not_verified', citationIdentityAndQuote: 'passed', statusBasis: 'verified'}})})})});
   await app.send();
   assert.equal(app.element('badge').dataset.status, 'error');
+});
+
+const uploadId = 'pdf_' + 'a'.repeat(64);
+const task = status => ({documentId: uploadId, fileName: '<script>paper.pdf</script>', status,
+  chunkCount: status === 'ready' ? 2 : 0, errorCode: 'encrypted_pdf'});
+
+test('未选文件、非PDF及超限不发送上传', async () => {
+  const app = await boot();
+  await app.upload();
+  assert.match(app.element('upload-state').textContent, /请选择/);
+  for (const file of [{name: 'x.txt', size: 10}, {name: 'x.pdf', size: 10 * 1024 * 1024 + 1}]) {
+    app.element('pdf-file').files = [file];
+    await app.upload();
+    assert.match(app.element('upload-state').textContent, /10MB/);
+  }
+  assert.equal(app.allCalls.filter(c => c.request.method === 'POST').length, 0);
+});
+
+test('上传只提交一次，完成后刷新目录并选择新论文', async () => {
+  let uploaded = false, phase = 0;
+  const app = await boot({documents: [{documentId: 'a', chunkCount: 1}, {documentId: uploadId, chunkCount: 2}],
+    uploads: () => uploaded ? [task(++phase > 1 ? 'ready' : 'processing')] : [],
+    uploadResponse: async () => {uploaded = true; return {ok: true, json: async () => task('queued')};}});
+  app.element('pdf-file').files = [{name: 'paper.pdf', size: 10}];
+  const promise = app.upload();
+  assert.equal(app.element('upload').disabled, true);
+  await app.upload();
+  await promise;
+  assert.equal(app.allCalls.filter(c => c.url === '/api/uploads' && c.request.method === 'POST').length, 1);
+  assert.equal(app.allCalls.filter(c => c.url === '/api/documents').length, 2);
+  assert.equal(app.element('document').value, uploadId);
+  assert.equal(app.element('upload').disabled, false);
+  assert.match(app.element('upload-state').textContent, /已就绪/);
+});
+
+test('处理失败显示安全分类，不透传上游错误正文', async () => {
+  const app = await boot({uploads: () => [task('failed')]});
+  assert.match(app.element('upload-state').textContent, /加密 PDF/);
+  assert.match(app.element('upload-state').textContent, /相同文件重传仍复用失败/);
+  const failed = await boot({uploadResponse: async () => ({ok: false,
+    json: async () => ({code: 'unknown-secret', message: 'secret'})})});
+  failed.element('pdf-file').files = [{name: 'p.pdf', size: 10}];
+  await failed.upload();
+  assert.doesNotMatch(failed.element('upload-state').textContent, /secret/);
+});
+
+test('页面重载观察旧处理中任务，不重新上传', async () => {
+  let reads = 0;
+  const app = await boot({uploads: () => [task(++reads < 3 ? 'processing' : 'ready')]});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(app.allCalls.filter(c => c.request.method === 'POST').length, 0);
+  assert.equal(app.element('upload').disabled, false);
+  assert.match(app.element('upload-state').textContent, /已就绪/);
+});
+
+test('状态网络失败停止轮询，不重新提交任务', async () => {
+  const app = await boot({uploadStateError: true});
+  assert.equal(app.allCalls.filter(c => c.url === '/api/uploads').length, 1);
+  assert.match(app.element('upload-state').textContent, /任务状态不可用/);
 });

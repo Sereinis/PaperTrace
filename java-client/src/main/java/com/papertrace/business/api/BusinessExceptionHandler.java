@@ -11,6 +11,19 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /** 将输入错误和内部依赖错误转换为不泄露正文的业务响应。 */
 @RestControllerAdvice
 public class BusinessExceptionHandler {
+    /** 上传错误只返回安全分类。 */
+    @ExceptionHandler(com.papertrace.business.service.UploadService.UploadException.class)
+    public ResponseEntity<BusinessErrorResponse> uploadFailure(com.papertrace.business.service.UploadService.UploadException error) {
+        return ResponseEntity.status(error.status).body(new BusinessErrorResponse(error.code, "上传未完成，不会自动重试"));
+    }
+
+    /** multipart超限或缺少文件均固定失败，不反射原文件名。 */
+    @ExceptionHandler({org.springframework.web.multipart.MaxUploadSizeExceededException.class,
+            org.springframework.web.multipart.support.MissingServletRequestPartException.class})
+    public ResponseEntity<BusinessErrorResponse> invalidUpload(Exception error) {
+        return ResponseEntity.status(400).body(new BusinessErrorResponse("invalid_upload", "PDF必须非空且不超过10MB"));
+    }
+
     /** 处理请求字段校验失败。 */
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
     public ResponseEntity<BusinessErrorResponse> invalidRequest(Exception error) {

@@ -3,8 +3,18 @@
   const byId = id => document.getElementById(id);
   const form = byId("question-form"), select = byId("document"), query = byId("query");
   const submit = byId("submit"), refresh = byId("refresh"), result = byId("result");
+  const file = byId("pdf-file"), upload = byId("upload"), uploadState = byId("upload-state");
   const badge = byId("badge"), state = byId("request-state"), usage = byId("usage");
-  let busy = false;
+  let busy = false, uploadBusy = false;
+  const uploadErrors = {
+    uploads_disabled: "未配置本地论文库", invalid_upload: "PDF 无效或超过 10MB",
+    encrypted_pdf: "暂不支持加密 PDF", page_limit: "PDF 页数超过 60 页",
+    text_limit: "提取文本超过限制", chunk_limit: "分块超过 300 块",
+    no_extractable_text: "未提取到文本，暂不支持扫描件", pdf_parse_failed: "PDF 解析失败",
+    import_timeout: "等待处理超时，上游可能仍在执行", interrupted: "服务重启或任务中断",
+    import_already_attempted: "任务已尝试，不会自动续跑", import_busy: "已有论文正在处理",
+    upload_conflict: "文件目录已存在，需要人工检查", upload_storage_failed: "文件保存失败"
+  };
   const errors = {
     invalid_request: "请求字段无效，请检查问题和论文。", invalid_input: "请求输入不符合约定。",
     invalid_json: "请求格式无效。", invalid_content_length: "请求长度无效。",
@@ -39,16 +49,17 @@
     busy = value;
     document.body.dataset.loading = String(value);
     document.querySelector(".answer").setAttribute("aria-busy", String(value));
-    select.disabled = value || !select.value;
-    query.disabled = value;
-    refresh.disabled = value;
-    submit.disabled = value || !select.value;
+    select.disabled = value || uploadBusy || !select.value;
+    query.disabled = value || uploadBusy;
+    refresh.disabled = value || uploadBusy;
+    submit.disabled = value || uploadBusy || !select.value;
+    upload.disabled = file.disabled = value || uploadBusy;
   }
   /** 只读取元数据；空目录和网络失败保留禁用态，不自动重试。 */
-  async function loadDocuments() {
+  async function loadDocuments(preferred) {
     refresh.disabled = true;
     select.disabled = submit.disabled = true;
-    const previous = select.value;
+    const previous = typeof preferred === "string" ? preferred : select.value;
     select.replaceChildren(new Option("正在加载论文…", ""));
     byId("catalog-state").textContent = "正在读取已加载论文…";
     try {
@@ -62,14 +73,66 @@
       if (data.documents.some(d => d.documentId === previous)) select.value = previous;
       if (!data.documents.length) select.add(new Option("暂无已加载论文", ""));
       byId("catalog-state").textContent = data.documents.length
-        ? `已加载 ${data.documents.length} 篇论文。显示稳定ID，暂不支持上传。` : "目录为空，请在Python服务启动时加载论文。";
+        ? `已加载 ${data.documents.length} 篇论文。` : "目录为空，请先上传 PDF。";
     } catch {
       select.replaceChildren(new Option("论文列表不可用", ""));
       byId("catalog-state").textContent = "论文列表读取失败，请检查Python服务后手动刷新。";
     } finally {
-      refresh.disabled = false;
-      select.disabled = submit.disabled = !select.value;
+      setBusy(busy);
     }
+  }
+  /** 读取并校验任务状态，只展示固定错误说明，不自动重试网络错误。 */
+  async function loadUploads() {
+    const response = await fetch("/api/uploads", {cache: "no-store"});
+    if (!response.ok) throw new Error();
+    const tasks = await response.json();
+    if (!Array.isArray(tasks) || tasks.some(t => !t || typeof t.documentId !== "string"
+        || !/^pdf_[0-9a-f]{64}$/.test(t.documentId) || typeof t.fileName !== "string"
+        || !["queued", "processing", "ready", "failed"].includes(t.status)
+        || !Number.isSafeInteger(t.chunkCount) || t.chunkCount < 0
+        || (t.status === "ready" && t.chunkCount < 1))) throw new Error();
+    const labels = {queued: "等待处理", processing: "正在解析和向量化", ready: "已就绪", failed: "处理失败"};
+    uploadState.textContent = tasks.length ? tasks.map(t => `${t.fileName}：${labels[t.status]}${t.status === "failed"
+      ? `（${uploadErrors[t.errorCode] || "处理未完成"}；不会自动重试，相同文件重传仍复用失败状态）` : ""}`).join("\n")
+      : "支持文本型 PDF：最多 10MB、60 页、300 块。处理会发送提取文本到向量 API 并可能计费。";
+    return tasks;
+  }
+  /** 页面重载也能继续观察未完成任务；只轮询状态，不重新提交或续跑。 */
+  async function observeUploads(target) {
+    let hadActive = false;
+    for (;;) {
+      const tasks = await loadUploads();
+      if (target && !tasks.some(t => t.documentId === target)) throw new Error();
+      const active = tasks.some(t => ["queued", "processing"].includes(t.status));
+      uploadBusy = active;
+      setBusy(busy);
+      if (!active) {
+        if (hadActive || target) await loadDocuments(tasks.find(t => t.documentId === target && t.status === "ready")?.documentId);
+        return;
+      }
+      hadActive = true;
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+  }
+  /** 上传一次并轮询任务状态；失败不自动重新提交文件。 */
+  async function submitUpload() {
+    if (busy || uploadBusy) return;
+    if (!file.files.length) { uploadState.textContent = "请选择一个 PDF 文件。"; return; }
+    const selected = file.files[0];
+    if (!selected.name.toLowerCase().endsWith(".pdf") || selected.size < 5 || selected.size > 10 * 1024 * 1024) {
+      uploadState.textContent = "仅支持不超过 10MB 的非空 PDF。"; return;
+    }
+    uploadBusy = true; setBusy(busy);
+    uploadState.textContent = "正在上传…";
+    try {
+      const formData = new FormData(); formData.append("file", selected);
+      const response = await fetch("/api/uploads", {method: "POST", body: formData});
+      const data = await response.json();
+      if (!response.ok) { uploadState.textContent = `${uploadErrors[data?.code] || "上传失败"}；不会自动重试。`; return; }
+      if (!data || !/^pdf_[0-9a-f]{64}$/.test(data.documentId)) throw new Error();
+      await observeUploads(data.documentId);
+    } catch { uploadState.textContent = "上传或状态读取失败，不会自动重试；上游可能仍在处理或已计费。请稍后刷新页面查看。"; }
+    finally { uploadBusy = false; setBusy(busy); }
   }
   /** 在渲染前检查最小结果契约，避免将异常状态解释为完整回答。 */
   function validate(answer, sent) {
@@ -123,7 +186,7 @@
   /** 单次发送，不取消后静默重发，也不保存问题/答案到浏览器存储。 */
   form.addEventListener("submit", async event => {
     event.preventDefault();
-    if (busy || !form.reportValidity() || !query.value.trim()) return;
+    if (busy || uploadBusy || !form.reportValidity() || !query.value.trim()) return;
     const sent = {query: query.value, documentId: select.value};
     result.replaceChildren();
     usage.textContent = "";
@@ -151,6 +214,11 @@
       showUsage(null);
     } finally { setBusy(false); }
   });
-  refresh.addEventListener("click", loadDocuments);
+  refresh.addEventListener("click", () => loadDocuments());
+  upload.addEventListener("click", submitUpload);
   loadDocuments();
+  observeUploads().catch(() => {
+    uploadBusy = false; setBusy(busy);
+    uploadState.textContent = "任务状态不可用，请检查服务后刷新页面；不会自动重新提交任务。";
+  });
 })();

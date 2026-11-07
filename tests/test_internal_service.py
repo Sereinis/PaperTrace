@@ -204,3 +204,51 @@ def test_inflight_request_is_not_queued():
             service.answer("attention", "a")
     finally:
         service._lock.release()
+
+
+def test_import_disabled_and_rejects_extra_path(server):
+    """未配置论文库时返回503，客户端路径和多余参数一律拒绝。"""
+    status, body = request(server, "POST", "/v1/import", {"document_id": "pdf_" + "a" * 64})
+    assert status == 503 and body["error"]["code"] == "uploads_disabled"
+    status, _ = request(server, "POST", "/v1/import", {"document_id": "a", "path": "secret"})
+    assert status == 400
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_library_import_http_and_catalog(failure):
+    """通过真实本机HTTP验证导入契约、目录合并和安全失败，所有模型均为替身。"""
+    from papertrace.library import ImportFailure
+    identity = "pdf_" + "a" * 64
+    service = QuestionService([], KeywordRetriever, FakeGenerator())
+    calls = []
+
+    class Library:
+        """记录导入请求并提供已就绪的模拟论文服务。"""
+        def import_document(self, value):
+            """失败只抛安全分类，不包含上游正文。"""
+            calls.append(value)
+            if failure:
+                raise ImportFailure("encrypted_pdf")
+            return {"document_id": value, "chunk_count": 1}
+
+        def documents(self):
+            """目录仅列出已导入的文档。"""
+            return [] if failure or not calls else [{"document_id": identity, "chunk_count": 1}]
+
+    service.library = Library()
+    httpd = serve(service, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_port}"
+        status, body = request(base, "POST", "/v1/import", {"document_id": identity})
+        assert status == (422 if failure else 200)
+        assert calls == [identity]
+        _, catalog = request(base, "GET", "/v1/documents")
+        assert len(catalog["documents"]) == (0 if failure else 1)
+        if failure:
+            assert body["error"]["code"] == "encrypted_pdf"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)

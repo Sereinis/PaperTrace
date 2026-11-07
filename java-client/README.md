@@ -11,6 +11,8 @@ String json = client.ask("What mechanism does the model use?", "paper-a");
 
 ## Spring Boot 骨架
 
+可选本地 PDF 上传提供 `POST /api/uploads` 和 `GET /api/uploads`，后台任务持久化，处理完成进入论文目录。需 Java `PAPERTRACE_LIBRARY_DIR` 与 Python `--library-dir` 指向相同绝对目录；配置、限制、费用和恢复边界见 [PDF 上传说明](../docs/pdf-upload.md)。
+
 `pom.xml` 与 `src/main/java/com/papertrace/business` 已加入 Java 业务层最小骨架：
 
 - `POST /api/questions` 接收 `query`、`documentId`。
