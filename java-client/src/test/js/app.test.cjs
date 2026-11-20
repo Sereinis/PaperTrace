@@ -24,11 +24,14 @@ class Element {
   addEventListener(name, callback) { this.listeners[name] = callback; }
   /** 测试由代码执行的其它状态，不模拟浏览器原生表单校验。 */
   reportValidity() { return true; }
+  /** 模拟本地下载点击及临时节点清理。 */
+  click() { this.clicked = true; }
+  remove() { this.removed = true; }
 }
 
 /** 启动独立脚本沙箱，所有网络响应均为测试对象。 */
 async function boot(options = {}) {
-  const ids = new Map(), calls = [], allCalls = [];
+  const ids = new Map(), calls = [], allCalls = [], downloads = [], revoked = [];
   const element = id => { if (!ids.has(id)) ids.set(id, new Element()); return ids.get(id); };
   const answerPanel = new Element(), body = new Element();
   const documents = options.documents ?? [{documentId: 'a', chunkCount: 1}];
@@ -41,6 +44,11 @@ async function boot(options = {}) {
     },
     FormData: class { append(key, value) { this[key] = value; } },
     crypto: {randomUUID: () => reportId},
+    Blob,
+    URL: {createObjectURL: blob => {
+      if (options.downloadError) throw new Error('secret-download');
+      downloads.push(blob); return 'blob:local-test';
+    }, revokeObjectURL: url => revoked.push(url)},
     setTimeout: callback => setImmediate(callback),
     fetch: async (url, request) => {
       allCalls.push({url, request});
@@ -68,7 +76,7 @@ async function boot(options = {}) {
   await new Promise(resolve => setImmediate(resolve));
   /** 触发一次表单提交。 */
   const send = () => { element('query').value = 'q'; return element('question-form').listeners.submit({preventDefault() {}}); };
-  return {element, calls, allCalls, send, body, answerPanel,
+  return {element, calls, allCalls, send, body, answerPanel, downloads, revoked,
     upload: () => element('upload').listeners.click()};
 }
 
@@ -332,4 +340,80 @@ test('历史报告可切换，按任务身份而不是当前论文选择展示',
   await app.element('report-tasks').listeners.change();
   assert.match(text(app.element('report-result')), /Alpha on X/);
   assert.doesNotMatch(text(app.element('report-result')), /Second experiment/);
+});
+
+test('草稿本地导出包含七字段、精确摘录、身份和用量边界，不新增网络调用', async () => {
+  const task = reportTask(); task.privateAudit = 'secret-audit';
+  const app = await boot({reports: () => [task]});
+  assert.equal(app.element('report-export').disabled, false);
+  const before = app.allCalls.length;
+  app.element('report-export').listeners.click();
+  assert.equal(app.allCalls.length, before);
+  assert.equal(app.downloads.length, 1);
+  const content = await app.downloads[0].text();
+  assert.match(content, /PaperTrace 实验报告草稿/);
+  assert.match(content, /已知小计（非完整总量）/);
+  assert.match(content, /未知用量调用：1/);
+  assert.match(content, /语义支持.*未验证/);
+  assert.match(content, /PDF 第 7 页/);
+  assert.match(content, /分块：a7/);
+  assert.match(content, /<script>unsafe\(\)<\/script>/);
+  assert.match(content, /## 7\. 实验结果/);
+  assert.doesNotMatch(content, /secret-audit/);
+  const link = app.body.children.at(-1);
+  assert.equal(link.download, `PaperTrace-草稿-${reportId}.md`);
+  assert.equal(link.clicked, true); assert.equal(link.removed, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(app.revoked, ['blob:local-test']);
+});
+
+test('包含代码围栏的摘录原样保留在更长围栏内，待核对项不丢失', async () => {
+  const task = reportTask();
+  const a = task.result.sections[0].answer;
+  a.status = 'partial'; a.missingInfo = ['需核对 ``` 与 <img>'];
+  a.claims[0].citations[0].quote = '```\n<script>unsafe()</script>\n````';
+  const app = await boot({reports: () => [task]});
+  app.element('report-export').listeners.click();
+  const content = await app.downloads[0].text();
+  assert.ok(content.includes('`````text\n' + a.claims[0].citations[0].quote + '\n`````'));
+  assert.ok(content.includes(a.missingInfo[0]));
+});
+
+for (const status of ['queued', 'processing', 'failed']) {
+  test(`非ready报告不允许导出：${status}`, async () => {
+    // queued/processing的轮询测试用失败读取结束，避免无限模拟轮询。
+    let reads = 0;
+    const app = await boot({reports: () => {
+      if (++reads > 1) throw new Error('stop polling');
+      return [reportTask(status)];
+    }});
+    app.element('report-export').listeners.click();
+    assert.equal(app.downloads.length, 0);
+    assert.equal(app.element('report-export').disabled, true);
+  });
+}
+
+test('切换历史报告按所选任务导出，读取失败清除旧导出状态', async () => {
+  const first = reportTask(), second = reportTask();
+  second.requestId = '22345678-1234-4234-8234-123456789abc'; second.experimentScope = 'Second experiment';
+  let fail = false;
+  const app = await boot({reports: () => {if (fail) throw new Error('secret'); return [first, second];}});
+  app.element('report-tasks').value = first.requestId;
+  await app.element('report-tasks').listeners.change();
+  app.element('report-export').listeners.click();
+  assert.doesNotMatch(await app.downloads[0].text(), /Second experiment/);
+  fail = true;
+  await app.element('report-refresh').listeners.click();
+  app.element('report-export').listeners.click();
+  assert.equal(app.downloads.length, 1);
+  assert.equal(app.element('report-export').disabled, true);
+});
+
+test('下载失败显示安全提示，报告不重新生成', async () => {
+  const app = await boot({reports: () => [reportTask()], downloadError: true});
+  const before = app.allCalls.length;
+  app.element('report-export').listeners.click();
+  assert.equal(app.allCalls.length, before);
+  assert.match(app.element('report-export-state').textContent, /导出失败/);
+  assert.doesNotMatch(app.element('report-export-state').textContent, /secret/);
 });

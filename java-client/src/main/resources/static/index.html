@@ -57,6 +57,8 @@
           <button id="report-submit" type="button">生成实验报告</button>
           <label for="report-tasks">已保存的报告任务</label>
           <div class="document-row"><select id="report-tasks" aria-label="选择报告任务"></select><button id="report-refresh" type="button" class="secondary">刷新报告状态</button></div>
+          <button id="report-export" type="button" class="secondary" disabled>导出所选报告草稿（Markdown）</button>
+          <p id="report-export-state" class="hint" role="status" aria-live="polite"></p>
           <p id="report-state" class="hint" role="status" aria-live="polite"></p>
           <div id="report-result"></div>
         </section>

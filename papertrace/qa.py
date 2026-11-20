@@ -14,7 +14,13 @@ from papertrace.retrieval_eval import corpus_fingerprint
 
 _MAX_CONTEXT_BYTES = 64000
 _MAX_OUTPUT_BYTES = 128000
+_CARD_TOP_FIELDS = ("status", "cards", "missing_info")
+_CARD_OTHER_FIELDS = ("claims", "subjects", "results", "conditions", "decisions")
 _VALIDATION_DETAILS = {
+    "field_cards": frozenset({"content_invalid", "json_invalid", "fields_invalid", "status_invalid",
+                              "card_invalid", "references_invalid", "literal_invalid",
+                              "reference_count_invalid", "reference_fields_invalid", "reference_id_invalid",
+                              "reference_unknown", "reference_duplicate"}),
     "result_graph": frozenset({
         "content_invalid", "json_invalid", "fields_invalid", "nodes_invalid",
         "identity_invalid", "references_invalid", "links_invalid", "literal_invalid", "coverage_invalid",
@@ -47,6 +53,29 @@ answered 必须有 claims 且 missing_info 为空；partial 必须同时有 clai
 以上 status 仅是你对给定候选证据的判断，不是独立验证结论。"""
 
 
+def _safe_card_shape(value: dict | None) -> dict | None:
+    """仅接受固定类型、白名单字段名及有界计数，拒绝动态键名或原始值。"""
+    if not isinstance(value, dict) or set(value) != {
+        "root_type", "missing_fields", "recognized_other_fields", "unknown_field_count"
+    }:
+        return None
+    root = value["root_type"]
+    if not isinstance(root, str) or root not in {"object", "array", "string", "number", "boolean", "null"}:
+        return None
+    for key, allowed in (("missing_fields", _CARD_TOP_FIELDS), ("recognized_other_fields", _CARD_OTHER_FIELDS)):
+        items = value[key]
+        if (not isinstance(items, list) or len(items) > len(allowed)
+                or any(not isinstance(item, str) or item not in allowed for item in items)
+                or len(set(items)) != len(items)):
+            return None
+    count = value["unknown_field_count"]
+    if type(count) is not int or not 0 <= count <= _MAX_OUTPUT_BYTES:
+        return None
+    if root != "object" and (value["missing_fields"] or value["recognized_other_fields"] or count):
+        return None
+    return copy.deepcopy(value)
+
+
 class QAError(ValueError):
     """表示问答输入、外部组件或生成契约不符合要求，不回显原始内容。"""
 
@@ -54,6 +83,8 @@ class QAError(ValueError):
         self, message: str, *, code: str = "invalid_input",
         usage: dict[str, int] | None = None, http_status: int | None = None,
         validation_stage: str | None = None, detail_code: str | None = None,
+        validation_location: dict | None = None,
+        validation_shape: dict | None = None,
     ) -> None:
         """只保留白名单类型、校验阶段和细分码，不保存问题、候选或模型正文。"""
         super().__init__(message)
@@ -70,6 +101,13 @@ class QAError(ValueError):
                             and 100 <= http_status <= 599 else None}
         if detail is not None:
             self.diagnostics.update(validation_stage=stage, detail_code=detail)
+        if (stage == "field_cards" and detail is not None and isinstance(validation_location, dict)
+                and set(validation_location) in ({"card_index"}, {"card_index", "reference_index"})
+                and all(type(v) is int and 0 <= v < 20 for v in validation_location.values())):
+            self.diagnostics["validation_location"] = dict(validation_location)
+        shape = _safe_card_shape(validation_shape) if stage == "field_cards" and detail == "fields_invalid" else None
+        if shape is not None:
+            self.diagnostics["validation_shape"] = shape
 
 
 def _segments(text: str, evidence_id: str) -> list[dict]:
@@ -323,7 +361,9 @@ def answer_question(
         raise QAError("应用生成协议校验失败；未返回部分答案", code=error.code,
                       usage=error.diagnostics.get("usage"),
                       validation_stage=error.diagnostics.get("validation_stage"),
-                      detail_code=error.diagnostics.get("detail_code")) from None
+                      detail_code=error.diagnostics.get("detail_code"),
+                      validation_location=error.diagnostics.get("validation_location"),
+                      validation_shape=error.diagnostics.get("validation_shape")) from None
     except Exception:
         raise QAError("生成组件执行失败；未自动重试，请求可能已计费",
                       code="generation_failed") from None

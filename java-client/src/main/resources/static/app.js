@@ -7,6 +7,8 @@
   const badge = byId("badge"), state = byId("request-state"), usage = byId("usage");
   const reportSubmit = byId("report-submit"), reportState = byId("report-state"), reportResult = byId("report-result");
   const reportTasks = byId("report-tasks"), reportRefresh = byId("report-refresh");
+  const reportExport = byId("report-export"), reportExportState = byId("report-export-state");
+  let exportableReport = null;
   const reportFields = ["research_question", "datasets", "model", "baselines", "training_settings", "evaluation_metrics", "results"];
   const reportLabels = ["研究问题", "数据集", "模型", "对照方法", "训练设置", "评价指标", "实验结果"];
   const reportErrors = {interrupted: "服务重启，任务已中断", field_failed: "字段生成或复核失败", report_failed: "报告执行或保存失败",
@@ -105,6 +107,8 @@
   /** 将后台报告任务渲染为进度或待核对字段，不展示未完成半份报告。 */
   function renderReport(task) {
     if (!task) return;
+    exportableReport = task.status === "ready" ? task : null;
+    reportExport.disabled = !exportableReport;
     const labels = {queued: "已排队", processing: "生成中", ready: "已完成·待核对", failed: "未完成"};
     reportState.textContent = `${labels[task.status] || "未知状态"}：${task.completedFields}/7` +
       (task.currentField ? `，当前字段 ${reportLabels[reportFields.indexOf(task.currentField)]}` : "") +
@@ -139,6 +143,7 @@
   /** 读取报告任务列表；轮询只读状态，不重新提交或触发生成。 */
   async function loadReports(id) {
     if (reportReading) return;
+    exportableReport = null; reportExport.disabled = true; reportExportState.textContent = "";
     reportReading = true; reportRefresh.disabled = true; setBusy(busy);
     try {
       const response = await fetch("/api/reports", {cache: "no-store"});
@@ -166,6 +171,63 @@
       if (reportBusy) setTimeout(() => loadReports(), 1200);
     } catch { reportResult.replaceChildren(); reportState.textContent = "报告任务读取失败，任务可能仍在执行或已计费；请点刷新报告状态，不要立即重提。"; reportBusy = true; }
     finally { reportReading = false; reportRefresh.disabled = false; setBusy(busy); }
+  }
+  /** 将任意论文文本放在动态长度代码围栏内，避免导出后被解释为HTML、链接或指令式格式。 */
+  function reportTextBlock(value) {
+    const text = String(value);
+    const longest = (text.match(/`+/g) || []).reduce((max, run) => Math.max(max, run.length), 0);
+    const fence = "`".repeat(Math.max(3, longest + 1));
+    return `${fence}text\n${text}\n${fence}\n`;
+  }
+  /** 仅从已校验的公开结果生成完整草稿，不包含私有候选、审计或其它任务。 */
+  function reportMarkdown(task) {
+    validateReport(task);
+    if (task.status !== "ready") throw new Error();
+    const lines = ["# PaperTrace 实验报告草稿\n",
+      "> 待核对草稿：语义支持、实验范围匹配、跨字段一致性与完整性均未验证。",
+      "> answered 仅为模型/结构检查自评；引用定位通过不证明结论正确。页码为PDF页序。\n",
+      "## 报告身份\n", reportTextBlock(`任务：${task.requestId}\n论文：${task.documentId}\n实验范围：${task.experimentScope}`)];
+    const g = task.generation;
+    lines.push("## 生成用量\n", `生成调用：${g.generationCalls}；未知用量调用：${g.unknownUsageCalls}。`);
+    const u = g.totalUsage || g.knownUsageSubtotal;
+    lines.push(`${g.totalUsage ? "总量" : "已知小计（非完整总量）"}：输入 ${u.promptTokens} / 输出 ${u.completionTokens} / 合计 ${u.totalTokens} tokens。`,
+      "非账单，不含向量用量。\n");
+    const statuses = {answered: "已回答（自评）", partial: "部分回答", insufficient: "证据不足"};
+    task.result.sections.forEach((section, i) => {
+      const answer = section.answer;
+      lines.push(`## ${i + 1}. ${reportLabels[i]} · ${statuses[answer.status]}\n`);
+      answer.claims.forEach((claim, index) => {
+        lines.push(`### 结论 ${index + 1}\n`, reportTextBlock(claim.text));
+        claim.citations.forEach((c, citationIndex) => {
+          lines.push(`引用 ${citationIndex + 1}：PDF 第 ${c.pageNumber} 页\n`,
+            reportTextBlock(`论文：${c.documentId}\n分块：${c.chunkId}`), reportTextBlock(c.quote));
+        });
+      });
+      if (answer.missingInfo.length) {
+        lines.push("### 待核对信息\n");
+        answer.missingInfo.forEach(missing => lines.push(reportTextBlock(missing)));
+      }
+    });
+    return lines.join("\n");
+  }
+  /** 在浏览器本地下载当前已完成报告，不发送网络请求或触发模型；失败不影响已保存任务。 */
+  function exportReport() {
+    if (!exportableReport || reportReading) return;
+    let url;
+    try {
+      const content = reportMarkdown(exportableReport);
+      url = URL.createObjectURL(new Blob([content], {type: "text/markdown;charset=utf-8"}));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `PaperTrace-草稿-${exportableReport.requestId}.md`;
+      document.body.append(link);
+      try { link.click(); } finally { link.remove(); }
+      reportExportState.textContent = "已发起草稿下载，请在浏览器下载列表确认；未调用模型。文件含论文摘录，请妥善保存。";
+    } catch {
+      reportExportState.textContent = "草稿导出失败，未重新生成报告或调用模型；可再次点击导出。";
+    } finally {
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
   }
   /** 提交固定目标的后台报告，失败不自动重提。 */
   async function submitReport() {
@@ -360,6 +422,7 @@
   reportSubmit.addEventListener("click", submitReport);
   reportRefresh.addEventListener("click", () => loadReports());
   reportTasks.addEventListener("change", () => loadReports(reportTasks.value));
+  reportExport.addEventListener("click", exportReport);
   loadDocuments();
   observeUploads().catch(() => {
     uploadBusy = false; setBusy(busy);

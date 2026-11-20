@@ -96,7 +96,7 @@ def test_result_and_conditions_across_table_and_body_remain_one_supported_claim(
     qa = report["sections"][0]["qa"]
     assert len(client.calls) == report["generation"]["generation_calls"] == 2
     assert report["generation"]["total_usage"]["total_tokens"] == 22
-    assert report["report_version"] == "experiment-report-v12-atomic-research-task"
+    assert report["report_version"] == "experiment-report-v13-field-evidence-cards"
     assert qa["prompt_version"] == PROMPT_VERSION == "evidence-qa-v4-coverage-json-contract"
     assert qa["status"] == "answered" and len(qa["claims"]) == 1
     citations = qa["claims"][0]["citations"]

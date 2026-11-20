@@ -12,6 +12,7 @@ from papertrace.qa import QAError, answer_question
 from papertrace.retrieval_eval import corpus_fingerprint
 from papertrace.scope_review import review_field
 from papertrace.field_coverage import apply_field_coverage_diagnostic
+from papertrace.field_cards import FIELD_KINDS, FieldCardsGenerator, attach_cards, cards_policy_sha256
 from papertrace.report_retrieval import (
     FIELD_QUERIES, RETRIEVAL_VERSION, SELECTION_POLICY, MAX_FIELD_CANDIDATES,
     FieldRetriever, field_candidate_budget,
@@ -21,7 +22,7 @@ from papertrace.result_graph import (
 )
 
 
-REPORT_VERSION = "experiment-report-v12-atomic-research-task"
+REPORT_VERSION = "experiment-report-v13-field-evidence-cards"
 _FIELD_SPECS = (
     ("research_question", "研究问题", "What research question or task does this experiment investigate?"),
     ("datasets", "数据集", "Which datasets, language pairs, splits and preprocessing are used?"),
@@ -157,6 +158,7 @@ def build_experiment_report(
     preserve_source_candidates: bool = True,
     result_target: dict | None = None,
     progress: Callable | None = None,
+    evidence_cards: bool = False,
 ) -> dict:
     """逐字段调用既有问答并返回JSON兼容报告；失败即停止，不返回半份报告。"""
     if not _valid_text(document_id, 512) or not _valid_text(experiment_scope, 1000):
@@ -167,6 +169,8 @@ def build_experiment_report(
         raise ReportError("max_tokens必须是1到8192的整数")
     if type(preserve_source_candidates) is not bool:
         raise ReportError("preserve_source_candidates必须是布尔值")
+    if type(evidence_cards) is not bool:
+        raise ReportError("evidence_cards必须是布尔值")
     if not callable(retriever_factory) or not callable(getattr(generator, "generate", None)):
         raise ReportError("必须提供检索器工厂和生成器")
     if progress is not None and not callable(progress):
@@ -225,10 +229,11 @@ def build_experiment_report(
         try:
             structured = key == "results" and result_target is not None
             adapter = ResultGraphGenerator(metered, result_target, []) if structured else None
+            cards_adapter = FieldCardsGenerator(metered, key) if evidence_cards and key in FIELD_KINDS else None
             result = answer_question(query, document_id, corpus,
                                      retriever_factory=(graph_retriever_factory(field_factory, adapter, top_k)
                                                         if structured else field_factory),
-                                     generator=adapter if structured else metered,
+                                     generator=adapter if structured else cards_adapter or metered,
                                      top_k=top_k, max_tokens=max_tokens,
                                      retrieval_query=retrieval_query,
                                      generation_instructions=field_extraction_rules(key),
@@ -240,6 +245,8 @@ def build_experiment_report(
             if not structured:
                 result = apply_field_coverage_diagnostic(result, field=key,
                                                          experiment_scope=experiment_scope)
+            if cards_adapter is not None:
+                result = attach_cards(result, cards_adapter)
             if field_retrievers:
                 result["field_retrieval"] = copy.deepcopy(field_retrievers[-1].last_search)
             if structured:
@@ -250,7 +257,9 @@ def build_experiment_report(
             cause = QAError("字段失败", code=error.code, usage=diagnostics.get("usage"),
                             http_status=diagnostics.get("http_status"),
                             validation_stage=diagnostics.get("validation_stage"),
-                            detail_code=diagnostics.get("detail_code")).diagnostics
+                            detail_code=diagnostics.get("detail_code"),
+                            validation_location=diagnostics.get("validation_location"),
+                            validation_shape=diagnostics.get("validation_shape")).diagnostics
             raise ReportError("报告字段执行失败；未返回部分报告，未自动重试，请求可能已计费",
                               failed_field=key, completed_fields=len(sections),
                               generation=metered.summary(), cause=cause) from None
@@ -278,6 +287,8 @@ def build_experiment_report(
             sort_keys=True, ensure_ascii=False, separators=(",", ":"),
         ).encode("utf-8")).hexdigest(),
         "result_graph_policy_sha256": graph_policy_sha256() if result_target is not None else None,
+        "evidence_cards": evidence_cards,
+        "field_cards_policy_sha256": cards_policy_sha256() if evidence_cards and any(k in FIELD_KINDS for k in chosen) else None,
         "field_plan_sha256": hashlib.sha256(json.dumps(
             plans, ensure_ascii=False, separators=(",", ":"),
         ).encode("utf-8")).hexdigest(),
