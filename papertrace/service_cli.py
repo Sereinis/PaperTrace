@@ -144,6 +144,8 @@ def main(argv=None):
                                           max_tokens=args.max_tokens, generation_timeout=args.generation_timeout,
                                           embedding_timeout=args.embedding_timeout,
                                           offline_query_cache=args.offline_query_cache)
+            from papertrace.report_jobs import ReportJobs
+            service.reports = ReportJobs(service, args.library_dir / "report-jobs")
         server = serve(service, args.host, args.port)
         print("PaperTrace内部服务已就绪（仅本机；不自动重试）", flush=True)
         server.serve_forever()

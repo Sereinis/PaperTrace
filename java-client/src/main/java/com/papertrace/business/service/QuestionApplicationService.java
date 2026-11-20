@@ -37,6 +37,22 @@ public class QuestionApplicationService {
             if (!query.equals(text(result, "query")) || !documentId.equals(text(result, "document_id"))) {
                 throw new IllegalStateException("内部响应请求身份不一致");
             }
+            return new QuestionResponse(text(envelope, "service_version"), parseAnswer(result, documentId, false));
+        } catch (PythonResponseException error) {
+            throw classify(error);
+        } catch (HttpTimeoutException error) {
+            throw new QuestionServiceException("internal_timeout", 504, null, error);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new QuestionServiceException("问答内部服务请求已中断", error);
+        } catch (IOException | RuntimeException error) {
+            throw new QuestionServiceException("问答内部服务不可用", error);
+        }
+    }
+
+    /** 共用引用与状态校验，报告额外接受既有复核/结构化状态依据。 */
+    public static Answer parseAnswer(JsonNode result, String documentId, boolean report) {
+            if (!documentId.equals(text(result, "document_id"))) throw new IllegalStateException();
             String status = text(result, "status");
             if (!Set.of("answered", "partial", "insufficient").contains(status)) {
                 throw new IllegalStateException("内部回答状态无效");
@@ -52,6 +68,8 @@ public class QuestionApplicationService {
                     if (!documentId.equals(sourceDocument) || start < 0 || end <= start || page < 1) {
                         throw new IllegalStateException("内部引用身份或位置无效");
                     }
+                    String quote = text(citation, "quote");
+                    if (report && quote.codePointCount(0, quote.length()) != end - start) throw new IllegalStateException();
                     citations.add(new Citation(text(citation, "evidence_id"), text(citation, "segment_id"),
                             text(citation, "chunk_id"), sourceDocument, page, text(citation, "quote"), start, end));
                 }
@@ -78,22 +96,13 @@ public class QuestionApplicationService {
             String basis = text(validation, "status_basis");
             if (!semantic.equals("not_verified")
                     || !Set.of("passed", "not_applicable").contains(quoteValidation)
-                    || !Set.of("model_self_assessment", "no_retrieved_evidence").contains(basis)) {
+                    || !(Set.of("model_self_assessment", "no_retrieved_evidence").contains(basis)
+                         || (report && Set.of("generation_and_review_model_assessment",
+                             "structured_identity_link_checks_and_model_review").contains(basis)))) {
                 throw new IllegalStateException("内部校验状态无效");
             }
-            return new QuestionResponse(text(envelope, "service_version"),
-                    new Answer(query, documentId, status, List.copyOf(claims), List.copyOf(missing),
-                            new Validation(quoteValidation, semantic, basis), usage(result.path("generation").path("usage"))));
-        } catch (PythonResponseException error) {
-            throw classify(error);
-        } catch (HttpTimeoutException error) {
-            throw new QuestionServiceException("internal_timeout", 504, null, error);
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new QuestionServiceException("问答内部服务请求已中断", error);
-        } catch (IOException | RuntimeException error) {
-            throw new QuestionServiceException("问答内部服务不可用", error);
-        }
+            return new Answer(text(result, "query"), documentId, status, List.copyOf(claims), List.copyOf(missing),
+                            new Validation(quoteValidation, semantic, basis), usage(result.path("generation").path("usage")));
     }
 
     /** 只接受固定版本与HTTP状态匹配的错误码，不使用上游message。 */
@@ -123,7 +132,7 @@ public class QuestionApplicationService {
     }
 
     /** 校验生成用量的非负整数及求和关系，未知保持为空。 */
-    private static Usage usage(JsonNode node) {
+    public static Usage usage(JsonNode node) {
         if (node.isMissingNode() || node.isNull()) { return null; }
         String[] names = {"prompt_tokens", "completion_tokens", "total_tokens"};
         long[] values = new long[3];

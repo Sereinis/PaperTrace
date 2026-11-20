@@ -35,6 +35,6 @@ public class BusinessExceptionHandler {
     @ExceptionHandler(QuestionServiceException.class)
     public ResponseEntity<BusinessErrorResponse> internalService(QuestionServiceException error) {
         return ResponseEntity.status(error.httpStatus())
-                .body(new BusinessErrorResponse(error.code(), "问答请求未完成；不会自动重试，已发送请求可能计费", error.usage()));
+                .body(new BusinessErrorResponse(error.code(), "请求未完成；不会自动重试，已发送请求可能计费", error.usage()));
     }
 }

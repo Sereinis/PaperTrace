@@ -67,6 +67,19 @@ public final class PaperTracePythonClient {
         return response.body();
     }
 
+    /** 提交或读取后台报告任务，仅访问固定本机端点，不自动重试。 */
+    public String reports(String json) throws IOException, InterruptedException {
+        var builder = HttpRequest.newBuilder(baseUri.resolve("/v1/reports"))
+                .timeout(Duration.ofSeconds(15)).header("Content-Type", "application/json");
+        var request = json == null ? builder.GET().build()
+                : builder.POST(HttpRequest.BodyPublishers.ofString(json)).build();
+        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != (json == null ? 200 : 202)) {
+            throw new PythonResponseException(response.statusCode(), response.body());
+        }
+        return response.body();
+    }
+
     /** 仅提交哈希身份，不允许传入任意路径，后台导入不自动重试。 */
     public String importDocument(String documentId) throws IOException, InterruptedException {
         if (documentId == null || !documentId.matches("pdf_[0-9a-f]{64}")) {

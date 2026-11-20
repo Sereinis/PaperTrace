@@ -145,6 +145,7 @@ def build_experiment_report(
     fields: list[str] | None = None, top_k: int = 5, max_tokens: int = 2048,
     preserve_source_candidates: bool = True,
     result_target: dict | None = None,
+    progress: Callable | None = None,
 ) -> dict:
     """逐字段调用既有问答并返回JSON兼容报告；失败即停止，不返回半份报告。"""
     if not _valid_text(document_id, 512) or not _valid_text(experiment_scope, 1000):
@@ -157,6 +158,8 @@ def build_experiment_report(
         raise ReportError("preserve_source_candidates必须是布尔值")
     if not callable(retriever_factory) or not callable(getattr(generator, "generate", None)):
         raise ReportError("必须提供检索器工厂和生成器")
+    if progress is not None and not callable(progress):
+        raise ReportError("progress必须可调用")
     chosen = list(_FIELD_BY_ID) if fields is None else fields
     if (not isinstance(chosen, list) or not 1 <= len(chosen) <= len(_FIELD_SPECS)
             or any(not isinstance(key, str) or key not in _FIELD_BY_ID for key in chosen)
@@ -195,6 +198,8 @@ def build_experiment_report(
     metered = _MeteredGenerator(generator)
     sections = []
     for key, label, query, retrieval_query in plans:
+        if progress is not None:
+            progress(key, len(sections))
         field_retrievers = []
 
         def field_factory(selected):
@@ -243,6 +248,8 @@ def build_experiment_report(
                               failed_field=key, completed_fields=len(sections),
                               generation=metered.summary()) from None
         sections.append({"field": key, "label": label, "qa": result})
+        if progress is not None:
+            progress(None, len(sections))
     return {
         "schema_version": 1, "report_version": (REPORT_VERSION + "-graph" if result_target is not None
                                                   else REPORT_VERSION),

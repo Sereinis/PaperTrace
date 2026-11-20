@@ -1,0 +1,66 @@
+# 本地实验报告工作台
+
+网页可将选中论文中的一个明确实验整理为七字段草稿：研究问题、数据集、模型、对照方法、训练设置、评价指标、实验结果。Java 负责输入校验和安全投影，Python 后台复用已有报告引擎；没有改变检索算法、提示词或内容验收标准。
+
+## 启动与使用
+
+沿用 [本地论文库启动步骤](pdf-upload.md#启动)，Python 必须配置 `--library-dir`。报告任务保存在该目录的 `report-jobs` 子目录。仅静态语料模式未配置此参数时，报告区提示未启用，不影响原有问答。已有服务需要重启加载本轮代码；本文不代替实际启动或网页人工验收。
+
+1. 在页面上方选择已就绪论文（可先上传 PDF）。
+2. 在“实验报告”填写实验范围，以及模型变体、任务/语言对、数据集、测试划分、单模型/集成模型。目标是用户提供的范围约束，不是论文事实或自动识别结果；建议使用原文规范英文名称。
+3. 如需核对结果条件，在“必查条件”填入英文名称，用半角逗号分隔：`model_selection`（最终模型选择/组成）、`checkpoint_averaging`（checkpoint 参数平均）、`decoding`（解码）、`evaluation_protocol`（评测过程）。可留空，不接受重复或其它名称。
+4. 点击“生成实验报告”，查看已完成字段数及当前字段。完成后逐条查看结论、英文摘录、PDF 页序、chunk 身份及待核对信息。
+5. 刷新或重新打开页面会读取已保存任务；可选择历史报告。轮询只读，不重新生成。状态读取/提交结果不确定时停止自动轮询并保留禁用态，手动“刷新报告状态”确认后再操作。
+
+报告占用问答执行锁时，新问答/报告被拒绝；同页同时禁用上传。不同页面的 PDF 导入仍使用既有独立锁，并不是所有计费请求的全局限流。报告区使用提交时绑定的论文身份，不随之后切换论文而重命名。
+
+## 任务接口与恢复
+
+Java `POST /api/reports` 返回 HTTP 202，任务未必已完成，请读取 `status`。请求示例：
+
+```json
+{
+  "requestId": "12345678-1234-4234-8234-123456789abc",
+  "documentId": "paper-id-from-catalog",
+  "experimentScope": "Transformer base / WMT2014 English-German / single",
+  "resultTarget": {
+    "model": "Transformer base",
+    "task": "English-German translation",
+    "dataset": "WMT2014",
+    "split": "newstest2014",
+    "modelType": "single",
+    "requiredConditions": ["checkpoint_averaging", "decoding"]
+  }
+}
+```
+
+示例身份只用于说明；客户端为每次新任务生成 UUID v4。`GET /api/reports` 返回任务数组。Java 通过固定本机端点访问 Python `POST/GET /v1/reports`，内部请求用 snake_case；两种读取均不触发模型。提交/读取内部 HTTP 等待上限 15 秒，不是报告整体执行上限。
+
+任务字段包括 `requestId/documentId/experimentScope/status/completedFields/currentField/errorCode/generation/result`。状态为 `queued → processing → ready` 或 `failed`；进度为字段计数，不是时间百分比。只有 `ready` 返回完整七字段 `result.sections[].answer`，失败不发布半份报告；错误只给固定分类，不回显上游正文。`request_conflict/report_limit` 返回 409，忙/未启用为 503，输入错误 400，未知论文 404，未识别上游失败脱敏为 502。
+
+相同 UUID 和完全相同请求复用持久化状态，不再执行；同 UUID 改内容返回冲突。不同 UUID 即使内容相同仍是新计费任务。任务先保存再启动；服务重启把 queued/processing 改为 failed/interrupted，不自动续跑或重试。浏览器关闭不取消任务，Java 重启不取消仍在 Python 运行的任务；Python 退出会中断后台线程，已发请求可能仍计费。
+
+最多保存 50 个任务，无分页、删除、重试、取消或自动归档接口。达到上限应由维护者停服务后备份/归档明确的任务文件，再重启；不要直接删除整个论文库。任务列表包含所有完整报告，数量上限并非响应字节数上限。单文件恢复上限 8 MiB，损坏或结构不符拒绝启动，不自动修复。
+
+## 费用、内容与安全边界
+
+- 每字段抽取及复核最多两次，完整报告最多 14 次生成，不自动重试。沿用服务的 `top_k/max_tokens` 配置，默认每次生成上限 2048；没有为报告悄悄改为历史开发实验使用的 4096。输出截断可能使任务失败。
+- 子问题检索最多使用 13 条不同查询，缓存未命中时另有 BGE-M3 查询向量请求。只发送问题和候选证据给生成模型，不发送参考答案。`--offline-query-cache` 只禁止缺失查询向量请求，不禁止生成费用。
+- `generation` 包含 `generationCalls/unknownUsageCalls/knownUsageSubtotal/totalUsage`。任一调用用量未知时完整总量为 null；已知小计不是完整消费。统计不含向量费用，不是账单。进度更新不逐次保存 token 统计，进程中断或底层存储故障可能丢失执行中的用量。
+- 草稿固定显示 `semanticSupport/scopeMatch/crossFieldConsistency/exhaustiveness = not_verified`。`answered` 只是模型/结构检查自评，引用存在不证明结论正确；此前报告范围污染和漏项尚未全部解决，内容与泛化未验收。
+- 公开响应只包含结论、精确引用、缺失项及安全状态/用量，不公开候选全文、内部复核审计、关系图审计、路径或密钥。引用仍含必要原文，任务文件也保留这些内容，并非匿名数据。
+- 仅供本机单用户、一组 Java/Python 进程共享目录；无跨进程锁、鉴权、多租户、线上用户 API 密钥管理或公网部署保障。目录只应由可信维护者管理，文件校验不是安全签名。
+
+## 本轮验证
+
+已完成 Python 后台任务/实际本机 HTTP 测试、真实七字段引擎配模拟生成器（14 次模拟调用）、Java 实际 HTTP 到模拟 Python 上游的校验/投影测试，以及 Node 最小 DOM 状态测试。覆盖幂等、忙拒绝、进度、重启中断、安全失败、用量、历史选择、刷新恢复及纯文本渲染。
+
+本轮真实模型调用为 0，未读取真实密钥；尚未进行真实论文新报告生成、Java 到实际 Python 的本轮跨进程报告联调或浏览器视觉/用户内容验收。离线模型预设结果不证明真实报告质量。
+
+### 后续本机真实试用（2026-11-20）
+
+本机网页完成 Transformer base／WMT 2014 英德／newstest2014／single 七字段报告，任务为 ready，生成调用14次，已知输入87873、输出3926、总计91799 tokens；向量用量和账单未核对。随后仅通过Java只读报告接口和本地分块核对，未追加模型请求。43次引用出现的论文身份、页码及精确子串均匹配54块原语料；此次未新增PDF视觉核验或完整偏移重算。
+
+结果字段保留27.3 BLEU、5 checkpoint平均、10分钟间隔、beam=4、长度惩罚0.6，未将big的28.4当目标成绩。模型配置、Adam、dropout和label smoothing已展示；研究问题仍偏论文整体贡献而非具体英德任务，细项覆盖和字段边界尚未完整验收。接口实际跑通和引用匹配不代表语义支持或泛化质量通过；用户报告生成完成，不等于逐项内容确认。
+
+Python 1049 项、Java 68 项、Node 31 项测试通过，编译、语法、打包与空白检查通过。本轮 Java 测试/打包运行于 JDK 26.0.1，编译目标为 Java 21；不代表已在 JDK 21 上重跑本轮新增报告功能。

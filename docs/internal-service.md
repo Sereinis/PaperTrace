@@ -5,6 +5,7 @@
 - `GET /healthz`：返回服务版本。
 - `GET /v1/documents`：返回固定版本及 `documents[].document_id/chunk_count`；只来自当前加载语料，按ID排序，不返回原文/路径，不触发模型，问答繁忙时也可读取。
 - `POST /v1/question`：请求体严格为 `query` 与 `document_id`，成功响应包含既有 `answer_question` 结果。
+- `POST/GET /v1/reports`：提交后台七字段报告/只读任务列表，需要`--library-dir`；Java对应`POST/GET /api/reports`，进度、恢复与费用见[报告工作台](report-workspace.md)。
 - Python 服务只允许监听 `127.0.0.1`、`localhost` 或 `::1`，请求体上限为 256 KiB，默认不记录访问日志。
 - Python 的语料、检索器工厂和生成器由启动方显式注入；服务层不会读取密钥或隐式创建 DeepSeek 客户端。
 - 失败响应不回显问题正文、候选证据、模型正文或密钥。
@@ -56,4 +57,4 @@ Python错误与Java成功/错误响应只传递经过校验的生成token统计�
 
 实际Spring Boot jar → Python服务 → 54块Transformer论文候选 → 混合检索 → DeepSeek：已观察硬件开发题返回8块NVIDIA P100 GPU及100,000训练步，两条第7页引用身份、原文、偏移及Java投影与token统计核对通过。查询精确命中旧缓存，0次新向量、1次DeepSeek、无重试，输入2996/输出75/总3071 tokens，未核账单。未发送参考答案或金标，未重新视觉核对PDF，未获得新增用户内容确认，不作独立质量结论。
 
-未知论文经Java返回404且不调用生成器；样例验证后两服务已关闭。完整原始问答候选不由Java公开。Python的 `serve` 仍可供嵌入式调用；正式命令入口使用 `service_cli`。详细Java构建见 [后端说明](../java-client/README.md)。线上用户API配置、鉴权、多租户、报告接口和部署仍未实现。
+未知论文经Java返回404且不调用生成器；样例验证后两服务已关闭。完整原始问答候选不由Java公开。Python的 `serve` 仍可供嵌入式调用；正式命令入口使用 `service_cli`。详细Java构建见 [后端说明](../java-client/README.md)。已新增后台报告接口及网页，但内容尚未验收；线上用户API配置、鉴权、多租户和部署仍未实现。

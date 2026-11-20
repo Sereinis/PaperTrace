@@ -100,6 +100,17 @@ def test_all_fields_and_identity(chunks):
     assert chunks == original
 
 
+def test_progress_callback_is_ordered_and_does_not_change_report(chunks):
+    """字段前后进度只含身份和计数，完整结果不因观察而改变。"""
+    observed = []
+    actual = build(chunks, progress=lambda field, count: observed.append((field, count)))
+    assert actual == build(chunks)
+    keys = [s["field"] for s in actual["sections"]]
+    assert observed == [pair for i, key in enumerate(keys) for pair in [(key, i), (None, i + 1)]]
+    with pytest.raises(ReportError, match="progress"):
+        build(chunks, progress="not callable")
+
+
 def test_partial_and_missing_are_preserved_per_field(chunks):
     """拒答不变成论文未报告，报告不伪造统一的完整状态。"""
     report = build(chunks, Generator(["answered", "partial", "insufficient"]),

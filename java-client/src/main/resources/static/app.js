@@ -5,7 +5,16 @@
   const submit = byId("submit"), refresh = byId("refresh"), result = byId("result");
   const file = byId("pdf-file"), upload = byId("upload"), uploadState = byId("upload-state");
   const badge = byId("badge"), state = byId("request-state"), usage = byId("usage");
-  let busy = false, uploadBusy = false;
+  const reportSubmit = byId("report-submit"), reportState = byId("report-state"), reportResult = byId("report-result");
+  const reportTasks = byId("report-tasks"), reportRefresh = byId("report-refresh");
+  const reportFields = ["research_question", "datasets", "model", "baselines", "training_settings", "evaluation_metrics", "results"];
+  const reportLabels = ["研究问题", "数据集", "模型", "对照方法", "训练设置", "评价指标", "实验结果"];
+  const reportErrors = {interrupted: "服务重启，任务已中断", field_failed: "字段生成或复核失败", report_failed: "报告执行或保存失败",
+    reports_disabled: "未配置报告任务目录", service_busy: "已有问答或报告正在执行", request_conflict: "任务身份冲突",
+    report_limit: "已达到50份任务上限，请由维护者归档后重启", invalid_input: "报告输入无效", invalid_request: "报告输入无效",
+    document_not_found: "论文不存在", internal_service_unavailable: "报告服务不可用，请检查Python服务"};
+  let reportReading = false, reportsAvailable = true;
+  let busy = false, uploadBusy = false, reportBusy = false;
   const uploadErrors = {
     uploads_disabled: "未配置本地论文库", invalid_upload: "PDF 无效或超过 10MB",
     encrypted_pdf: "暂不支持加密 PDF", page_limit: "PDF 页数超过 60 页",
@@ -49,11 +58,142 @@
     busy = value;
     document.body.dataset.loading = String(value);
     document.querySelector(".answer").setAttribute("aria-busy", String(value));
-    select.disabled = value || uploadBusy || !select.value;
-    query.disabled = value || uploadBusy;
-    refresh.disabled = value || uploadBusy;
-    submit.disabled = value || uploadBusy || !select.value;
-    upload.disabled = file.disabled = value || uploadBusy;
+    select.disabled = value || uploadBusy || reportBusy || reportReading || !select.value;
+    query.disabled = value || uploadBusy || reportBusy || reportReading;
+    refresh.disabled = value || uploadBusy || reportBusy || reportReading;
+    submit.disabled = value || uploadBusy || reportBusy || reportReading || !select.value;
+    upload.disabled = file.disabled = value || uploadBusy || reportBusy || reportReading;
+    reportSubmit.disabled = value || uploadBusy || reportBusy || reportReading || !reportsAvailable || !select.value;
+    ["scope", "model", "task", "dataset", "split", "model-type", "conditions"].forEach(key => {
+      byId(`report-${key}`).disabled = value || uploadBusy || reportBusy || reportReading || !reportsAvailable;
+    });
+  }
+  /** 严格检查任务身份、进度及七字段结果，不把畸形响应当作完整报告。 */
+  function validateReport(task) {
+    if (!task || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(task.requestId)
+        || typeof task.documentId !== "string" || !task.documentId.trim()
+        || typeof task.experimentScope !== "string" || !task.experimentScope.trim()
+        || !["queued", "processing", "ready", "failed"].includes(task.status)
+        || !Number.isSafeInteger(task.completedFields) || task.completedFields < 0 || task.completedFields > 7
+        || (task.currentField !== null && !reportFields.includes(task.currentField))
+        || (task.errorCode !== null && !["interrupted", "field_failed", "report_failed"].includes(task.errorCode))
+        || ((task.status === "failed") !== (task.errorCode !== null))) throw new Error();
+    if ((["queued", "failed"].includes(task.status) && task.currentField !== null)
+        || (task.status === "queued" && task.completedFields !== 0)) throw new Error();
+    const g = task.generation;
+    if (g !== null) {
+      const validUsage = v => v && [v.promptTokens, v.completionTokens, v.totalTokens].every(n => Number.isSafeInteger(n) && n >= 0)
+        && v.promptTokens + v.completionTokens === v.totalTokens;
+      if (!g || !Number.isSafeInteger(g.generationCalls) || g.generationCalls < 0 || g.generationCalls > 14
+          || !Number.isSafeInteger(g.unknownUsageCalls) || g.unknownUsageCalls < 0 || g.unknownUsageCalls > g.generationCalls
+          || !validUsage(g.knownUsageSubtotal)
+          || ((g.unknownUsageCalls > 0 || g.generationCalls === 0) ? g.totalUsage !== null
+            : !validUsage(g.totalUsage) || g.totalUsage.promptTokens !== g.knownUsageSubtotal.promptTokens
+              || g.totalUsage.completionTokens !== g.knownUsageSubtotal.completionTokens)) throw new Error();
+    }
+    if (task.status === "ready") {
+      if (task.completedFields !== 7 || task.currentField !== null || !task.result || !g
+          || !Array.isArray(task.result.sections) || task.result.sections.length !== 7
+          || ["semanticSupport", "scopeMatch", "crossFieldConsistency", "exhaustiveness"].some(k => task.result[k] !== "not_verified")) throw new Error();
+      task.result.sections.forEach((section, i) => {
+        if (section.field !== reportFields[i]) throw new Error();
+        validate(section.answer, {query: section.answer?.query, documentId: task.documentId}, true);
+      });
+    } else if (task.result !== null) throw new Error();
+    return task;
+  }
+  /** 将后台报告任务渲染为进度或待核对字段，不展示未完成半份报告。 */
+  function renderReport(task) {
+    if (!task) return;
+    const labels = {queued: "已排队", processing: "生成中", ready: "已完成·待核对", failed: "未完成"};
+    reportState.textContent = `${labels[task.status] || "未知状态"}：${task.completedFields}/7` +
+      (task.currentField ? `，当前字段 ${reportLabels[reportFields.indexOf(task.currentField)]}` : "") +
+      (task.errorCode ? `（${reportErrors[task.errorCode]}；不会自动重试）` : "");
+    reportResult.replaceChildren();
+    reportResult.append(node("p", `论文：${task.documentId}\n实验范围：${task.experimentScope}`, "context"));
+    const generation = task.generation;
+    if (generation) {
+      const total = generation.totalUsage, subtotal = generation.knownUsageSubtotal;
+      const valid = v => v && [v.promptTokens, v.completionTokens, v.totalTokens].every(n => Number.isSafeInteger(n) && n >= 0)
+        && v.promptTokens + v.completionTokens === v.totalTokens;
+      const summary = valid(total) ? `总计 ${total.totalTokens} tokens` : valid(subtotal) ? `已知小计 ${subtotal.totalTokens} tokens（非完整总量）` : "用量未知";
+      reportResult.append(node("p", `生成调用 ${generation.generationCalls} 次；${summary}；未知用量调用 ${generation.unknownUsageCalls} 次（非账单，不含向量用量）`, "hint"));
+    }
+    if (task.status !== "ready" || !task.result) return;
+    reportResult.append(node("p", "待核对草稿：语义支持、实验范围匹配、跨字段一致性与完整性均未验证。", "missing"));
+    task.result.sections.forEach((section, i) => {
+      const block = node("article", undefined, "report-section");
+      const statuses = {answered: "模型自评完整", partial: "部分信息", insufficient: "证据不足"};
+      block.append(node("h3", `${i + 1}. ${reportLabels[i]} · ${statuses[section.answer.status]}`));
+      section.answer.claims.forEach(claim => {
+        block.append(node("p", claim.text));
+        claim.citations.forEach(citation => {
+          block.append(node("blockquote", `第 ${citation.pageNumber} 页：${citation.quote}`));
+          block.append(node("p", `证据块：${citation.chunkId}`, "context"));
+        });
+      });
+      section.answer.missingInfo.forEach(missing => block.append(node("p", `待核对：${missing}`, "report-missing")));
+      reportResult.append(block);
+    });
+  }
+  /** 读取报告任务列表；轮询只读状态，不重新提交或触发生成。 */
+  async function loadReports(id) {
+    if (reportReading) return;
+    reportReading = true; reportRefresh.disabled = true; setBusy(busy);
+    try {
+      const response = await fetch("/api/reports", {cache: "no-store"});
+      if (!response.ok && (await response.json())?.code === "reports_disabled") {
+        reportsAvailable = false; reportBusy = false;
+        reportResult.replaceChildren(); reportTasks.replaceChildren();
+        reportState.textContent = "实验报告未启用：请为Python服务配置 --library-dir；现有问答仍可使用。";
+        return;
+      }
+      if (!response.ok) throw new Error();
+      const tasks = await response.json();
+      if (!Array.isArray(tasks) || tasks.length > 50) throw new Error();
+      tasks.forEach(validateReport);
+      reportsAvailable = true;
+      if (new Set(tasks.map(t => t.requestId)).size !== tasks.length) throw new Error();
+      const previous = id || reportTasks.value;
+      reportTasks.replaceChildren();
+      tasks.forEach(t => reportTasks.add(new Option(`${t.experimentScope} · ${t.completedFields}/7`, t.requestId)));
+      const task = tasks.find(item => item.requestId === previous) || tasks.at(-1);
+      if (id && !tasks.some(t => t.requestId === id)) throw new Error();
+      if (task) reportTasks.value = task.requestId;
+      reportBusy = tasks.some(t => ["queued", "processing"].includes(t.status));
+      if (task) renderReport(task);
+      else { reportState.textContent = "尚无报告任务。"; reportResult.replaceChildren(); }
+      if (reportBusy) setTimeout(() => loadReports(), 1200);
+    } catch { reportResult.replaceChildren(); reportState.textContent = "报告任务读取失败，任务可能仍在执行或已计费；请点刷新报告状态，不要立即重提。"; reportBusy = true; }
+    finally { reportReading = false; reportRefresh.disabled = false; setBusy(busy); }
+  }
+  /** 提交固定目标的后台报告，失败不自动重提。 */
+  async function submitReport() {
+    if (busy || uploadBusy || reportBusy || reportReading || !reportsAvailable || !select.value) return;
+    const conditions = byId("report-conditions").value.split(",").map(v => v.trim()).filter(Boolean);
+    const allowed = new Set(["model_selection", "checkpoint_averaging", "decoding", "evaluation_protocol"]);
+    const target = {model: byId("report-model").value.trim(), task: byId("report-task").value.trim(),
+      dataset: byId("report-dataset").value.trim(), split: byId("report-split").value.trim(),
+      modelType: byId("report-model-type").value, requiredConditions: conditions};
+    if (conditions.some(v => !allowed.has(v)) || new Set(conditions).size !== conditions.length || !byId("report-scope").value.trim()
+        || Object.values(target).slice(0, 4).some(v => !v || v.length > 256)
+        || byId("report-scope").value.length > 1000) { reportState.textContent = "请填写有效的实验范围、目标身份和条件名称。"; return; }
+    if (!globalThis.crypto?.randomUUID) { reportState.textContent = "浏览器不支持安全任务身份，请使用本机最新版浏览器。"; return; }
+    const id = globalThis.crypto.randomUUID();
+    reportBusy = true; setBusy(busy); reportState.textContent = "正在提交报告任务…";
+    try {
+      const response = await fetch("/api/reports", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({requestId: id, documentId: select.value, experimentScope: byId("report-scope").value.trim(), resultTarget: target})});
+      const data = await response.json();
+      if (!response.ok) {
+        reportState.textContent = `${reportErrors[data?.code] || "报告提交未确认"}；不会自动重试。请刷新报告状态。`;
+        reportBusy = true; return;
+      }
+      validateReport(data);
+      if (data.requestId !== id || data.documentId !== select.value || data.experimentScope !== byId("report-scope").value.trim()) throw new Error();
+      renderReport(data); await loadReports(id);
+    } catch { reportState.textContent = "提交状态未知，任务可能已启动或计费；不会自动重试，请刷新报告状态。"; reportBusy = true; }
+    finally { setBusy(busy); }
   }
   /** 只读取元数据；空目录和网络失败保留禁用态，不自动重试。 */
   async function loadDocuments(preferred) {
@@ -116,7 +256,7 @@
   }
   /** 上传一次并轮询任务状态；失败不自动重新提交文件。 */
   async function submitUpload() {
-    if (busy || uploadBusy) return;
+    if (busy || uploadBusy || reportBusy || reportReading) return;
     if (!file.files.length) { uploadState.textContent = "请选择一个 PDF 文件。"; return; }
     const selected = file.files[0];
     if (!selected.name.toLowerCase().endsWith(".pdf") || selected.size < 5 || selected.size > 10 * 1024 * 1024) {
@@ -135,14 +275,15 @@
     finally { uploadBusy = false; setBusy(busy); }
   }
   /** 在渲染前检查最小结果契约，避免将异常状态解释为完整回答。 */
-  function validate(answer, sent) {
+  function validate(answer, sent, report = false) {
     if (!answer || answer.query !== sent.query || answer.documentId !== sent.documentId
         || !["answered", "partial", "insufficient"].includes(answer.status)
         || !Array.isArray(answer.claims) || !Array.isArray(answer.missingInfo)
         || answer.missingInfo.some(v => typeof v !== "string")
         || answer.validation?.semanticSupport !== "not_verified"
         || !["passed", "not_applicable"].includes(answer.validation?.citationIdentityAndQuote)
-        || !["model_self_assessment", "no_retrieved_evidence"].includes(answer.validation?.statusBasis)) throw new Error();
+        || !["model_self_assessment", "no_retrieved_evidence", ...(report ? ["generation_and_review_model_assessment",
+          "structured_identity_link_checks_and_model_review"] : [])].includes(answer.validation?.statusBasis)) throw new Error();
     if ((answer.status === "answered" && (!answer.claims.length || answer.missingInfo.length))
         || (answer.status === "partial" && (!answer.claims.length || !answer.missingInfo.length))
         || (answer.status === "insufficient" && (answer.claims.length || !answer.missingInfo.length))) throw new Error();
@@ -186,7 +327,7 @@
   /** 单次发送，不取消后静默重发，也不保存问题/答案到浏览器存储。 */
   form.addEventListener("submit", async event => {
     event.preventDefault();
-    if (busy || uploadBusy || !form.reportValidity() || !query.value.trim()) return;
+    if (busy || uploadBusy || reportBusy || reportReading || !form.reportValidity() || !query.value.trim()) return;
     const sent = {query: query.value, documentId: select.value};
     result.replaceChildren();
     usage.textContent = "";
@@ -216,9 +357,13 @@
   });
   refresh.addEventListener("click", () => loadDocuments());
   upload.addEventListener("click", submitUpload);
+  reportSubmit.addEventListener("click", submitReport);
+  reportRefresh.addEventListener("click", () => loadReports());
+  reportTasks.addEventListener("change", () => loadReports(reportTasks.value));
   loadDocuments();
   observeUploads().catch(() => {
     uploadBusy = false; setBusy(busy);
     uploadState.textContent = "任务状态不可用，请检查服务后刷新页面；不会自动重新提交任务。";
   });
+  loadReports();
 })();

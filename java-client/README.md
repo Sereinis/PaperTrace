@@ -7,7 +7,7 @@ var client = new PaperTracePythonClient("http://127.0.0.1:8765");
 String json = client.ask("What mechanism does the model use?", "paper-a");
 ```
 
-基于 Java 21、Spring Boot 3.5.7 与 Maven，提供本机单问题业务接口，调用独立 Python HTTP 服务，不通过子进程执行 Python。不包含认证、数据库、多租户、报告 API、公网部署或线上用户 API 密钥配置。
+基于 Java 21、Spring Boot 3.5.7 与 Maven，提供本机问答、上传与后台报告业务接口，调用独立 Python HTTP 服务，不通过子进程执行 Python。不包含认证、数据库、多租户、公网部署或线上用户 API 密钥配置。
 
 ## Spring Boot 骨架
 
@@ -16,6 +16,7 @@ String json = client.ask("What mechanism does the model use?", "paper-a");
 `pom.xml` 与 `src/main/java/com/papertrace/business` 已加入 Java 业务层最小骨架：
 
 - `POST /api/questions` 接收 `query`、`documentId`。
+- `POST /api/reports` 提交带UUID的后台七字段报告，`GET /api/reports`只读任务和已完成结果；页面支持进度、历史报告及精确引用。Python需配置`--library-dir`，详见[报告工作台](../docs/report-workspace.md)。
 - `GET /api/documents` 返回 `documents[].documentId/chunkCount`，只读已加载论文目录，不返回原文、文件路径或模型配置，不触发模型。
 - `GET /` 提供原生HTML/CSS/JavaScript问答页面，无额外前端框架或构建依赖。只向同源Java API发请求，不直接访问Python或模型服务。
 - Controller 使用 Bean Validation 校验输入。

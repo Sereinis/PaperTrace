@@ -40,9 +40,16 @@ async function boot(options = {}) {
       constructor(text, value) { super('option', text); this.value = value; }
     },
     FormData: class { append(key, value) { this[key] = value; } },
+    crypto: {randomUUID: () => reportId},
     setTimeout: callback => setImmediate(callback),
     fetch: async (url, request) => {
       allCalls.push({url, request});
+      if (url === '/api/reports') {
+        if (options.reportsError) throw new Error('secret');
+        if (options.reportsDisabled) return {ok: false, json: async () => ({code: 'reports_disabled'})};
+        if (request.method === 'POST') return options.reportResponse(JSON.parse(request.body));
+        return {ok: true, json: async () => options.reports ? options.reports() : []};
+      }
       if (url === '/api/uploads' && request.method !== 'POST') {
         if (options.uploadStateError) throw new Error('secret');
         return {ok: true, json: async () => options.uploads ? options.uploads() : []};
@@ -219,4 +226,110 @@ test('状态网络失败停止轮询，不重新提交任务', async () => {
   const app = await boot({uploadStateError: true});
   assert.equal(app.allCalls.filter(c => c.url === '/api/uploads').length, 1);
   assert.match(app.element('upload-state').textContent, /任务状态不可用/);
+});
+
+const reportId = '12345678-1234-4234-8234-123456789abc';
+const reportFields = ['research_question', 'datasets', 'model', 'baselines', 'training_settings', 'evaluation_metrics', 'results'];
+function reportTask(status = 'ready') {
+  return {requestId: reportId, documentId: 'a', experimentScope: 'Alpha on X', status,
+    completedFields: status === 'ready' ? 7 : 0, currentField: null, errorCode: status === 'failed' ? 'interrupted' : null,
+    generation: status === 'ready' ? {generationCalls: 14, unknownUsageCalls: 1,
+      knownUsageSubtotal: {promptTokens: 10, completionTokens: 2, totalTokens: 12}, totalUsage: null} : null,
+    result: status === 'ready' ? {sections: reportFields.map(field => ({field, answer: answer({validation:
+      {semanticSupport: 'not_verified', citationIdentityAndQuote: 'passed', statusBasis: 'generation_and_review_model_assessment'}})})),
+      semanticSupport: 'not_verified', scopeMatch: 'not_verified', crossFieldConsistency: 'not_verified', exhaustiveness: 'not_verified'} : null};
+}
+function fillReport(app) {
+  for (const key of ['model', 'task', 'dataset', 'split']) app.element('report-' + key).value = 'test';
+  app.element('report-scope').value = 'Alpha on X';
+  app.element('report-model-type').value = 'single';
+}
+
+test('重载读取完整报告，纯文本引用、七字段及未知用量小计', async () => {
+  const app = await boot({reports: () => [reportTask()]});
+  assert.match(text(app.element('report-result')), /研究问题/);
+  assert.match(text(app.element('report-result')), /实验结果/);
+  assert.match(text(app.element('report-result')), /<script>unsafe\(\)<\/script>/);
+  assert.match(text(app.element('report-result')), /已知小计 12 tokens（非完整总量）/);
+  assert.match(text(app.element('report-result')), /未验证/);
+  assert.equal(app.allCalls.filter(c => c.request.method === 'POST').length, 0);
+});
+
+test('报告仅提交一次，重复点击被阻止；完成后读取持久任务', async () => {
+  let resolve, posted = false;
+  const app = await boot({reports: () => posted ? [reportTask()] : [],
+    reportResponse: () => new Promise(r => {resolve = r;})});
+  fillReport(app);
+  const first = app.element('report-submit').listeners.click();
+  await app.element('report-submit').listeners.click();
+  assert.equal(app.element('submit').disabled, true);
+  assert.equal(app.allCalls.filter(c => c.url === '/api/reports' && c.request.method === 'POST').length, 1);
+  posted = true;
+  resolve({ok: true, json: async () => reportTask('queued')});
+  await first;
+  assert.match(app.element('report-state').textContent, /已完成/);
+  assert.equal(app.element('submit').disabled, false);
+});
+
+test('报告重载只轮询不重新生成，任务完成恢复问答', async () => {
+  let reads = 0;
+  const app = await boot({reports: () => [reportTask(++reads < 3 ? 'processing' : 'ready')]});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(app.allCalls.filter(c => c.request.method === 'POST').length, 0);
+  assert.equal(app.element('submit').disabled, false);
+  assert.match(app.element('report-state').textContent, /7\/7/);
+});
+
+test('读取失败停止轮询，提交未知不重试且不反射错误正文', async () => {
+  const app = await boot({reportsError: true});
+  assert.equal(app.allCalls.filter(c => c.url === '/api/reports').length, 1);
+  assert.match(app.element('report-state').textContent, /刷新报告状态/);
+  assert.equal(app.element('report-submit').disabled, true);
+  const failed = await boot({reportResponse: async () => ({ok: false, json: async () => ({code: 'secret', message: 'secret'})})});
+  fillReport(failed);
+  await failed.element('report-submit').listeners.click();
+  await failed.element('report-submit').listeners.click();
+  assert.equal(failed.allCalls.filter(c => c.request.method === 'POST').length, 1);
+  assert.doesNotMatch(failed.element('report-state').textContent, /secret/);
+  await failed.element('report-refresh').listeners.click();
+  assert.equal(failed.element('report-submit').disabled, false);
+});
+
+for (const mutate of [t => t.result.sections.reverse(), t => t.result.semanticSupport = 'verified',
+  t => t.generation.generationCalls = 15, t => t.result.sections[0].answer.documentId = 'wrong']) {
+  test('畸形报告拒绝展示、不自动重提', async () => {
+    const task = reportTask(); mutate(task);
+    const app = await boot({reports: () => [task]});
+    assert.equal(app.element('report-result').children.length, 0);
+    assert.equal(app.element('report-submit').disabled, true);
+  });
+}
+
+test('缺少目标或重复条件不发送报告，失败任务不展示半份结果', async () => {
+  const app = await boot({reports: () => [reportTask('failed')]});
+  assert.match(app.element('report-state').textContent, /中断/);
+  await app.element('report-submit').listeners.click();
+  fillReport(app);
+  app.element('report-conditions').value = 'decoding, decoding';
+  await app.element('report-submit').listeners.click();
+  assert.equal(app.allCalls.filter(c => c.request.method === 'POST').length, 0);
+});
+
+test('未配置报告目录不影响已有静态论文问答', async () => {
+  const app = await boot({reportsDisabled: true});
+  assert.equal(app.element('report-submit').disabled, true);
+  assert.equal(app.element('submit').disabled, false);
+  await app.send();
+  assert.equal(app.element('badge').dataset.status, 'answered');
+});
+
+test('历史报告可切换，按任务身份而不是当前论文选择展示', async () => {
+  const first = reportTask(), second = reportTask();
+  second.requestId = '22345678-1234-4234-8234-123456789abc';
+  second.experimentScope = 'Second experiment';
+  const app = await boot({reports: () => [first, second]});
+  app.element('report-tasks').value = first.requestId;
+  await app.element('report-tasks').listeners.change();
+  assert.match(text(app.element('report-result')), /Alpha on X/);
+  assert.doesNotMatch(text(app.element('report-result')), /Second experiment/);
 });

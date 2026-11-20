@@ -40,6 +40,26 @@
         <p id="usage" class="hint"></p>
       </section>
     </div>
+        <section class="panel report-box" aria-labelledby="report-title">
+          <h2 id="report-title">实验报告</h2>
+          <p class="hint">使用上方选中的论文，后台逐字段抽取与复核，最多 14 次生成调用，并可能调用向量 API，均可能计费。关闭页面不会取消任务；服务重启会标记中断，不自动续跑。完成后仅作为待核对草稿。</p>
+          <label for="report-scope">实验范围</label>
+          <input id="report-scope" maxlength="1000" placeholder="例如：Transformer base，WMT14 英德，单模型">
+          <div class="report-grid">
+            <label>模型变体<input id="report-model" maxlength="256" placeholder="例如：Transformer base"></label>
+            <label>任务 / 语言对<input id="report-task" maxlength="256" placeholder="例如：English-German translation"></label>
+            <label>数据集<input id="report-dataset" maxlength="256" placeholder="例如：WMT2014"></label>
+            <label>测试划分<input id="report-split" maxlength="256" placeholder="例如：newstest2014"></label>
+            <label>模型类型<select id="report-model-type"><option value="single">单模型</option><option value="ensemble">集成模型</option></select></label>
+          </div>
+          <label for="report-conditions">必查条件（逗号分隔，可留空）</label>
+          <input id="report-conditions" placeholder="model_selection, checkpoint_averaging, decoding, evaluation_protocol">
+          <button id="report-submit" type="button">生成实验报告</button>
+          <label for="report-tasks">已保存的报告任务</label>
+          <div class="document-row"><select id="report-tasks" aria-label="选择报告任务"></select><button id="report-refresh" type="button" class="secondary">刷新报告状态</button></div>
+          <p id="report-state" class="hint" role="status" aria-live="polite"></p>
+          <div id="report-result"></div>
+        </section>
     <footer>原文定位校验 ≠ 语义支持验证。回答充分性为模型自评，请结合引用核对。</footer>
   </main>
 </body>

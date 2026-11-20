@@ -19,7 +19,7 @@ v0.1 PDF 解析验证已经完成。v0.2 已支持保守文本清洗、章节感
 
 Java业务后端提供本机 `POST /api/questions`，通过REST调用 `python -m papertrace.service_cli` 加载的Python论文问答服务，复用标准分块向量与查询缓存，支持错误分类和用量投影。已完成模拟联调及一次真实开发题端到端冒烟（1次生成、0次新向量）；不代表报告内容验收。构建见 [Java后端](java-client/README.md)，启动、费用和超时边界见 [内部服务说明](docs/internal-service.md)。
 
-Spring Boot现提供本地问答页面（默认 `http://127.0.0.1:8080/`）：选择已加载论文、输入问题、逐条查看中文结论和英文原文、页码、chunk身份、缺失项及生成token统计。`GET /api/documents`从Python读取仅含论文ID及分块数的目录，不触发模型。页面不解析模型HTML/Markdown，不存储问题历史，失败不自动重试。使用方式见[问答页面](docs/question-workspace.md)；未提供论文上传或用户API配置。
+Spring Boot现提供本地问答页面（默认 `http://127.0.0.1:8080/`）：选择已加载论文、输入问题、逐条查看中文结论和英文原文、页码、chunk身份、缺失项及生成token统计。`GET /api/documents`从Python读取仅含论文ID及分块数的目录，不触发模型。页面不解析模型HTML/Markdown，不存储问题历史，失败不自动重试。已支持可选本地PDF上传和七字段后台报告；使用方式见[问答页面](docs/question-workspace.md)及[实验报告工作台](docs/report-workspace.md)。线上用户API配置尚未实现。
 
 - Python 3.10 或更高版本；
 - 首版只支持可复制文本、结构较清晰的英文 PDF。
@@ -132,7 +132,7 @@ python -m papertrace.qa_cli `
 
 ## 单实验字段化证据报告
 
-验收方案见[报告验收与服务接入门槛](docs/report-acceptance.md)。内部接口联调、完整报告内容验收和线上可用性分别判定；当前内容尚未验收，Spring Boot/Python REST已完成单问题模拟联调，报告接口尚未接入。
+验收方案见[报告验收与服务接入门槛](docs/report-acceptance.md)。内部接口联调、完整报告内容验收和线上可用性分别判定；当前内容尚未验收。已新增后台报告任务接口与网页入口，支持字段进度、持久化、历史读取及结论/证据展示；只完成离线模型与接口测试，未作本轮真实报告生成或浏览器验收，详见[实验报告工作台](docs/report-workspace.md)。
 
 当前报告引擎增加保守字段覆盖诊断：候选中存在训练/指标类别而最终结论未覆盖，或对照结论出现明确其它语言方向时，只将过于乐观的`answered`降为`partial`并记录原因；不生成或改写事实，不把该诊断当语义验证。对v10旧报告的零调用回放将训练栏从answered降为partial，指标栏保留原partial；原报告文件未修改。
 

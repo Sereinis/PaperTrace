@@ -51,6 +51,7 @@ class QuestionService:
         self.top_k = top_k
         self.max_tokens = max_tokens
         self.library = None
+        self.reports = None
 
     def documents(self) -> list[dict]:
         """只列出已加载论文身份与分块数量，不返回原文、路径或模型配置。"""
@@ -149,13 +150,20 @@ def make_handler(service: QuestionService):
             elif self.path == "/v1/documents":
                 self._send(200, _json_bytes({"ok": True, "service_version": SERVICE_VERSION,
                                             "documents": service.documents()}))
+            elif self.path == "/v1/reports":
+                if service.reports is None:
+                    self._send(*_error("reports_disabled", "未配置报告任务目录", 503))
+                else:
+                    self._send(200, _json_bytes({"ok": True, "service_version": SERVICE_VERSION,
+                                                "tasks": service.reports.list()}))
             else:
                 self._send(*_error("not_found", "路径不存在", 404))
 
         def do_POST(self):
             """解析问答或导入JSON请求，拒绝客户端路径及额外字段。"""
             importing = self.path == "/v1/import"
-            if self.path not in {"/v1/question", "/v1/import"}:
+            reporting = self.path == "/v1/reports"
+            if self.path not in {"/v1/question", "/v1/import", "/v1/reports"}:
                 self._send(*_error("not_found", "路径不存在", 404))
                 return
             if self.headers.get_content_type() != "application/json" or self.headers.get("Transfer-Encoding"):
@@ -186,9 +194,10 @@ def make_handler(service: QuestionService):
                     raise ValueError
                 payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_strict_object,
                                      parse_constant=_reject_constant)
-                required = {"document_id"} if importing else {"query", "document_id"}
+                required = ({"request_id", "document_id", "experiment_scope", "result_target"} if reporting
+                            else {"document_id"} if importing else {"query", "document_id"})
                 if (not isinstance(payload, dict) or set(payload) != required
-                        or (not importing and not isinstance(payload["query"], str))
+                        or (not importing and not reporting and not isinstance(payload["query"], str))
                         or not isinstance(payload["document_id"], str)):
                     raise ValueError
             except (ValueError, UnicodeError, json.JSONDecodeError, RecursionError):
@@ -198,6 +207,13 @@ def make_handler(service: QuestionService):
                 self._send(*_error("request_timeout", "读取请求超时或中断", 408))
                 return
             try:
+                if reporting:
+                    if service.reports is None:
+                        self._send(*_error("reports_disabled", "未配置报告任务目录", 503))
+                        return
+                    task = service.reports.submit(payload)
+                    self._send(202, _json_bytes({"ok": True, "service_version": SERVICE_VERSION, "task": task}))
+                    return
                 if importing:
                     from papertrace.library import ImportFailure
                     if service.library is None:
@@ -219,8 +235,9 @@ def make_handler(service: QuestionService):
                                    usage=error.diagnostics.get("usage")))
                 return
             except ServiceError as error:
-                code = error.code if error.code in {"document_not_found", "service_busy"} else "invalid_input"
-                status = {"document_not_found": 404, "service_busy": 503}.get(code, 400)
+                code = error.code if error.code in {"document_not_found", "service_busy", "report_limit", "request_conflict"} else "invalid_input"
+                status = {"document_not_found": 404, "service_busy": 503,
+                          "report_limit": 409, "request_conflict": 409}.get(code, 400)
                 self._send(*_error(code, "论文不存在或服务暂不可处理此请求", status))
                 return
             except Exception:
