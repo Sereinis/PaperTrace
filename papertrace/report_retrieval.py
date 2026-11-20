@@ -5,11 +5,12 @@ import copy
 from papertrace.hybrid_search import reciprocal_rank_fusion
 
 
-RETRIEVAL_VERSION = "report-field-facets-v3-bounded-expansion"
+RETRIEVAL_VERSION = "report-field-facets-v4-research-task"
 SELECTION_POLICY = "adaptive_prefix_union_then_rrf_v2"
 MAX_FIELD_CANDIDATES = 40
 FIELD_QUERIES = {
-    "research_question": ("research question model motivation problem limitations computational efficiency parallelization",),
+    "research_question": ("research question model motivation problem limitations computational efficiency parallelization",
+                          "evaluation test set development split"),
     "datasets": ("training data dataset sentence pairs preprocessing vocabulary tokenization",
                  "evaluation test set development split"),
     "model": ("model encoder decoder architecture layers dimensions heads feed forward",

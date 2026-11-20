@@ -149,6 +149,19 @@ def test_single_query_same_as_original_rank_and_audit_is_independent():
     assert len(values["q"]) == 5
 
 
+def test_research_task_query_reuses_dataset_plan_without_deeper_search():
+    """研究问题复用已有评测划分查询，保持底层深度和字段候选预算。"""
+    queries = FIELD_QUERIES["research_question"]
+    assert len(queries) == 2 and queries[1] == FIELD_QUERIES["datasets"][1]
+    base = Retriever({q: [item(str(i) + q, i + 1) for i in range(5)] for q in queries})
+    retriever = FieldRetriever(base, queries, adaptive_budget=True)
+    result = retriever.search_candidates("untrusted experiment target", 5)
+    assert base.calls == [(q, 5) for q in queries]
+    assert len(result) == retriever.last_search["candidate_limit"] == 10
+    assert not retriever.last_search["budget_expanded"]
+    assert all(row["dropped_candidate_ids"] == [] for row in retriever.last_search["queries"])
+
+
 @pytest.mark.parametrize("top_k", [1, 2, 5, 20])
 @pytest.mark.parametrize("union", [False, True])
 def test_prefix_membership_and_budget_for_all_supported_depths(top_k, union):

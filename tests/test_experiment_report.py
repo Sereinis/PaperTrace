@@ -111,6 +111,58 @@ def test_progress_callback_is_ordered_and_does_not_change_report(chunks):
         build(chunks, progress="not callable")
 
 
+def test_research_generic_keep_still_downgrades_without_extra_generation(chunks):
+    """真实聚合路径中即使模型全部keep，也不能把只有动机当完整任务。"""
+    corpus = [dict(chunks[0], text="The model evaluation uses image classification on the test set. The research question concerns parallel computation.")]
+    client = Generator()
+    report = build(corpus, client, fields=["research_question"])
+    answer = report["sections"][0]["qa"]
+    assert answer["status"] == "partial"
+    assert answer["scope_review"]["kept_claim_indices"] == [0]
+    assert answer["coverage_diagnostic"]["downgraded"] is True
+    assert answer["validation"]["semantic_support"] == "not_verified"
+    assert report["generation"]["generation_calls"] == 2
+    assert any("具体实验任务" in text for text in answer["missing_info"])
+
+
+@pytest.mark.parametrize("task", ["图像分类", "机器翻译", "图像分割"])
+def test_atomic_research_task_survives_rejected_separate_performance(chunks, task):
+    """模拟已拆开的任务与性能结论，复核移除性能时任务引用独立保留。"""
+    corpus = [dict(chunks[0], text="Model evaluation test set: Alpha classification translation segmentation, accuracy 73.6.")]
+
+    class AtomicGenerator(Generator):
+        """按固定预设模拟原子结论，不把测试结果当模型遵循能力证明。"""
+
+        def generate(self, messages, **kwargs):
+            """抽取与复核各一次，任务不借用其它结论的证据。"""
+            context = json.loads(messages[1]["content"])
+            if "claims" in context:
+                self.review_calls.append(messages)
+                data = {"decisions": [
+                    {"claim_index": 0, "verdict": "keep", "reason": "预设任务保留"},
+                    {"claim_index": 1, "verdict": "out_of_scope", "reason": "预设成绩移除"}]}
+            else:
+                self.calls.append(messages)
+                assert "任务身份" in messages[0]["content"]
+                assert "引用可以保留包含性能的原文" in messages[0]["content"]
+                sid = context["evidence"][0]["segments"][0]["segment_id"]
+                data = {"status": "answered", "missing_info": [], "claims": [
+                    {"text": f"Alpha接受{task}评估。", "citations": [{"segment_id": sid}]},
+                    {"text": "Alpha的准确率为73.6。", "citations": [{"segment_id": sid}]}]}
+            return GenerationResult(json.dumps(data), "test", "test", "atomic", None)
+
+    client = AtomicGenerator()
+    report = build(corpus, client, fields=["research_question"])
+    answer = report["sections"][0]["qa"]
+    assert len(answer["claims"]) == 1 and answer["claims"][0]["text"] == f"Alpha接受{task}评估。"
+    assert "73.6" in answer["claims"][0]["citations"][0]["quote"]
+    assert answer["scope_review"]["kept_claim_indices"] == [0]
+    assert answer["status"] == "partial"
+    assert report["generation"]["generation_calls"] == 2
+    assert answer["validation"]["semantic_support"] == "not_verified"
+    assert len(client.calls) == len(client.review_calls) == 1
+
+
 def test_partial_and_missing_are_preserved_per_field(chunks):
     """拒答不变成论文未报告，报告不伪造统一的完整状态。"""
     report = build(chunks, Generator(["answered", "partial", "insufficient"]),
@@ -182,10 +234,10 @@ def test_explicit_target_reaches_ordinary_fields_as_untrusted_data(chunks):
     task = json.loads(json.loads(client.calls[0][0][1]["content"])["question"])
     assert task["experiment_target"] == {k: v for k, v in target.items() if k != "required_conditions"}
     assert target["model"] not in client.calls[0][0][0]["content"]
-    assert report["sections"][0]["qa"]["field_retrieval"]["version"] == "report-field-facets-v3-bounded-expansion"
+    assert report["sections"][0]["qa"]["field_retrieval"]["version"] == "report-field-facets-v4-research-task"
 
 
-@pytest.mark.parametrize("field", ["datasets", "model"])
+@pytest.mark.parametrize("field", ["datasets", "model", "research_question", "evaluation_metrics"])
 def test_local_checklists_are_trusted_generic_and_hashed(chunks, field):
     """当前字段收到通用检查清单及独立哈希，不混入参考数字。"""
     client = Generator()

@@ -97,6 +97,21 @@ def test_all_keep_retains_existing_partial_and_missing(qa):
     assert result["validation"]["semantic_support"] == "not_verified"
 
 
+def test_metric_only_claim_survives_numeric_quote_but_score_claim_is_removed(qa):
+    """模拟复核按字段分离结论，不因指标引用含成绩而误删合法指标描述。"""
+    qa["claims"][0]["text"] = "Alpha uses accuracy on test2030."
+    qa["claims"][1]["text"] = "Alpha scores 73.6 accuracy."
+    for claim in qa["claims"]:
+        claim["citations"][0]["quote"] = "Alpha test2030 accuracy 73.6."
+    client = Reviewer(["keep", "out_of_scope"])
+    result = review_field(qa, experiment_scope="Alpha test2030", field="evaluation_metrics", generator=client, max_tokens=128)
+    assert result["claims"] == qa["claims"][:1]
+    assert result["status"] == "partial" and len(client.calls) == 1
+    prompt = client.calls[0][0][0]["content"]
+    assert "引文本身含成绩不构成拒绝理由" in prompt
+    assert "不属于当前字段" in prompt
+
+
 def test_empty_claims_skip_review(qa):
     """拒答或空检索结果不新增生成费用。"""
     qa.update(status="insufficient", claims=[], missing_info=["缺少证据。"])
@@ -171,7 +186,7 @@ def test_scope_remains_data_and_missing_count_bounded(qa):
 
 def test_results_policy_keeps_evaluation_conditions_but_excludes_training_resources():
     """结果复核规则保留评测条件，不把训练资源误当结果条件。"""
-    assert REVIEW_VERSION == "experiment-scope-review-v4-field-scope"
+    assert REVIEW_VERSION == "experiment-scope-review-v5-task-and-metric-boundaries"
     assert "checkpoint选择或平均" in _REVIEW_PROMPT
     assert "解码/搜索设置" in _REVIEW_PROMPT
     assert "不能仅因它不是指标或条件句没有重复模型名称而删除" in _REVIEW_PROMPT
